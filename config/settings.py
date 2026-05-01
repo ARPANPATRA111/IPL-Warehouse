@@ -112,7 +112,13 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
 
     def is_serverless_runtime(self) -> bool:
-        return self.serverless_runtime or bool(os.getenv("NETLIFY")) or bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+        return (
+            self.serverless_runtime
+            or bool(os.getenv("NETLIFY"))
+            or bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+            or bool(os.getenv("VERCEL"))
+            or bool(os.getenv("VERCEL_ENV"))
+        )
 
 def get_settings() -> Settings:
     return Settings()

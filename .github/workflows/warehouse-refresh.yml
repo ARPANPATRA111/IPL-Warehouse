@@ -71,7 +71,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
             extra_args=" --full-refresh"
           fi
-          python -m etl.pipeline --local-data ./ipl_json --skip-extract${extra_args}
+          python -m etl.pipeline${extra_args}
 
       - name: Verify core warehouse tables
         env:
