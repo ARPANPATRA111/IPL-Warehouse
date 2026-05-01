@@ -1,7 +1,10 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
+from etl.load import FactLoadReport
 from etl.pipeline import ETLPipeline
 
 class TestETLPipeline:
@@ -56,3 +59,31 @@ class TestETLPipeline:
             mock_path.return_value.parent.parent.__truediv__ = lambda s, n: sql_dir
 
             pass
+
+    def test_load_sums_fact_report_row_counts(self):
+        pipeline = ETLPipeline()
+        pipeline.loader = MagicMock()
+        pipeline.loader.load_dim_dates.return_value = {}
+        pipeline.loader.load_dim_venues.return_value = {}
+        pipeline.loader.load_dim_teams.return_value = {}
+        pipeline.loader.load_dim_players.return_value = {}
+        pipeline.loader.load_dim_matches.return_value = {}
+        pipeline.loader.load_dim_innings.return_value = {}
+        pipeline.loader.load_fact_match_summary.return_value = FactLoadReport(18, {"match-1"}, set())
+        pipeline.loader.load_fact_deliveries.return_value = FactLoadReport(42, {"match-1"}, set())
+
+        transform_result = SimpleNamespace(
+            df_dates=pd.DataFrame(),
+            df_venues=pd.DataFrame(),
+            df_teams=pd.DataFrame(),
+            df_players=pd.DataFrame(),
+            df_matches=pd.DataFrame(),
+            df_innings=pd.DataFrame(),
+            df_match_summaries=pd.DataFrame([{"match_id": "match-1"}]),
+            df_deliveries=pd.DataFrame([{}]),
+        )
+
+        total_rows, successful_match_ids = pipeline._load(transform_result)
+
+        assert total_rows == 60
+        assert successful_match_ids == {"match-1"}

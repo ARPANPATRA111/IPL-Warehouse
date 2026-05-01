@@ -219,7 +219,7 @@ class ETLPipeline:
         logger.info("Loading fact tables...")
         match_summaries_df = getattr(transform_result, "df_match_summaries", None)
         if match_summaries_df is not None and not match_summaries_df.empty:
-            summary_rows = self.loader.load_fact_match_summary(
+            summary_report = self.loader.load_fact_match_summary(
                 match_summaries_df,
                 match_key_map,
                 date_key_map,
@@ -228,7 +228,7 @@ class ETLPipeline:
                 player_key_map,
                 player_name_to_id,
             )
-            total_rows += summary_rows
+            total_rows += summary_report.rows_loaded
 
         delivery_report = self.loader.load_fact_deliveries(
             transform_result.df_deliveries,
