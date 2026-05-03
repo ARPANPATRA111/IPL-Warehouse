@@ -1,0 +1,95 @@
+name: Warehouse Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      full_refresh:
+        description: Rebuild the schema and reload every tracked source file
+        required: false
+        default: false
+        type: boolean
+      log_level:
+        description: Application log level for the ETL run
+        required: false
+        default: INFO
+        type: choice
+        options:
+          - INFO
+          - DEBUG
+          - WARNING
+          - ERROR
+  schedule:
+    - cron: "0 3 * * 1"
+
+concurrency:
+  group: warehouse-refresh
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
+  ETL_VERSION: github-actions
+
+jobs:
+  refresh-warehouse:
+    name: Incremental Warehouse Refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate warehouse connection
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is required for warehouse refreshes."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install ETL dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run incremental ETL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          extra_args=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
+            extra_args=" --full-refresh"
+          fi
+          python -m etl.pipeline --local-data ./ipl_json --skip-extract${extra_args}
+
+      - name: Verify core warehouse tables
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine(os.environ["DATABASE_URL"])
+          tables = ["fact_match_summary", "fact_deliveries"]
+          with engine.connect() as connection:
+              counts = {
+                  table: connection.execute(text(f"select count(*) from {table}")).scalar()
+                  for table in tables
+              }
+
+          print(counts)
+          if any((count or 0) == 0 for count in counts.values()):
+              raise SystemExit("Warehouse refresh finished but one or more core tables are empty.")
+          PY
