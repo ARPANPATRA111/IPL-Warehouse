@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ipl_postgres
+    environment:
+      POSTGRES_DB: ipl_warehouse
+      POSTGRES_USER: ipl_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipl_secure_pass_2024}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/01_create_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./sql/02_create_indexes.sql:/docker-entrypoint-initdb.d/02_indexes.sql
+      - ./sql/03_seed_dimensions.sql:/docker-entrypoint-initdb.d/03_seeds.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipl_admin -d ipl_warehouse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  etl:
+    build:
+      context: .
+      target: production
+    container_name: ipl_etl
+    command: ["python", "-m", "etl.pipeline", "--local-data", "/app/data/ipl_json"]
+    environment:
+      DATABASE_URL: postgresql://ipl_admin:${POSTGRES_PASSWORD:-ipl_secure_pass_2024}@postgres:5432/ipl_warehouse
+      LOG_LEVEL: INFO
+    volumes:
+      - ./ipl_json:/app/data/ipl_json:ro
+      - etl_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  dashboard:
+    build:
+      context: .
+      target: production
+    container_name: ipl_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://ipl_admin:${POSTGRES_PASSWORD:-ipl_secure_pass_2024}@postgres:5432/ipl_warehouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  etl_logs:
