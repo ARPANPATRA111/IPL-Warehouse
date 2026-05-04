@@ -1,5 +1,4 @@
 import hashlib
-import shutil
 import time
 import zipfile
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from config.settings import get_settings
 
 logger = get_logger("extract")
 
+
 @dataclass(frozen=True)
 class TrackedFile:
 
@@ -21,12 +21,14 @@ class TrackedFile:
     match_id: str
     file_checksum: str
 
+
 def compute_sha256(file_path: Path) -> str:
     sha256_hash = hashlib.sha256()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
+
 
 def download_zip(
     url: str,
@@ -68,7 +70,9 @@ def download_zip(
             if checksum_path.exists():
                 old_checksum = checksum_path.read_text().strip()
                 if old_checksum == new_checksum:
-                    logger.info("File unchanged (same checksum), skipping re-extraction")
+                    logger.info(
+                        "File unchanged (same checksum), skipping re-extraction"
+                    )
                     return zip_path
 
             checksum_path.write_text(new_checksum)
@@ -78,7 +82,7 @@ def download_zip(
         except requests.exceptions.RequestException as e:
             logger.warning(f"Download attempt {attempt} failed: {e}")
             if attempt < max_retries:
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 logger.info(f"Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
             else:
@@ -87,6 +91,7 @@ def download_zip(
                 ) from e
 
     raise RuntimeError(f"Failed to download {url}")
+
 
 def extract_zip(zip_path: Path, extract_to: Path) -> int:
     extract_to.mkdir(parents=True, exist_ok=True)
@@ -108,6 +113,7 @@ def extract_zip(zip_path: Path, extract_to: Path) -> int:
     except zipfile.BadZipFile as e:
         raise RuntimeError(f"Corrupted ZIP file: {zip_path}") from e
 
+
 def list_json_files(directory: Path | str) -> list[Path]:
     directory = Path(directory)
 
@@ -118,6 +124,7 @@ def list_json_files(directory: Path | str) -> list[Path]:
     json_files = sorted(directory.glob("*.json"))
     logger.info(f"Found {len(json_files)} JSON files in {directory}")
     return json_files
+
 
 def build_tracked_files(json_files: list[Path]) -> list[TrackedFile]:
     tracked_files = [
@@ -131,12 +138,14 @@ def build_tracked_files(json_files: list[Path]) -> list[TrackedFile]:
     logger.info(f"Computed checksums for {len(tracked_files)} JSON files")
     return tracked_files
 
+
 def get_processed_match_ids(
     existing_ids: Optional[set[str]] = None,
 ) -> set[str]:
     if existing_ids is None:
         return set()
     return existing_ids
+
 
 def filter_new_files(
     all_files: list[TrackedFile],
@@ -153,12 +162,12 @@ def filter_new_files(
     )
     return new_files
 
+
 def run_extract(full_refresh: bool = False) -> list[Path]:
     settings = get_settings()
     settings.ensure_directories()
 
     logger.info("Starting extraction phase")
-
 
     zip_path = download_zip(
         url=settings.data_source_url,
@@ -168,15 +177,14 @@ def run_extract(full_refresh: bool = False) -> list[Path]:
         max_retries=settings.download_max_retries,
     )
 
-
     extract_count = extract_zip(zip_path, settings.raw_data_dir)
     logger.info(f"Extracted {extract_count} files to {settings.raw_data_dir}")
-
 
     json_files = list_json_files(settings.raw_data_dir)
 
     logger.info(f"Extraction complete: {len(json_files)} files available")
     return json_files
+
 
 def run_extract_local(data_dir: Path | str) -> list[Path]:
     data_dir = Path(data_dir)

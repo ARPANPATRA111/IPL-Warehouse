@@ -1,7 +1,7 @@
 import json
-from socket import AF_INET, SOCK_STREAM, getaddrinfo
 from collections.abc import Iterable
 from functools import lru_cache
+from socket import AF_INET, SOCK_STREAM, getaddrinfo
 from typing import Any, Optional
 
 import pandas as pd
@@ -20,11 +20,17 @@ def _resolve_serverless_database_url(database_url: str) -> str:
 
     parsed_url = make_url(database_url)
     hostname = parsed_url.host
-    if not hostname or not hostname.endswith(".supabase.co") or parsed_url.query.get("hostaddr"):
+    if (
+        not hostname
+        or not hostname.endswith(".supabase.co")
+        or parsed_url.query.get("hostaddr")
+    ):
         return database_url
 
     try:
-        address_info = getaddrinfo(hostname, parsed_url.port or 5432, AF_INET, SOCK_STREAM)
+        address_info = getaddrinfo(
+            hostname, parsed_url.port or 5432, AF_INET, SOCK_STREAM
+        )
     except OSError:
         return database_url
 
@@ -35,6 +41,7 @@ def _resolve_serverless_database_url(database_url: str) -> str:
     updated_query = dict(parsed_url.query)
     updated_query["hostaddr"] = ipv4_host
     return parsed_url.set(query=updated_query).render_as_string(hide_password=False)
+
 
 @lru_cache
 def get_engine() -> Engine:
@@ -49,7 +56,10 @@ def get_engine() -> Engine:
         engine_kwargs["pool_size"] = 5
         engine_kwargs["max_overflow"] = 10
 
-    return create_engine(_resolve_serverless_database_url(settings.database_url), **engine_kwargs)
+    return create_engine(
+        _resolve_serverless_database_url(settings.database_url), **engine_kwargs
+    )
+
 
 def run_query(
     query: str,
@@ -65,6 +75,7 @@ def run_query(
         result = conn.execute(statement, params or {})
         return pd.DataFrame(result.fetchall(), columns=result.keys())
 
+
 def run_records(
     query: str,
     params: Optional[dict[str, Any]] = None,
@@ -74,6 +85,7 @@ def run_records(
     if df.empty:
         return []
     return json.loads(df.to_json(orient="records", date_format="iso"))
+
 
 def run_scalar(
     query: str,

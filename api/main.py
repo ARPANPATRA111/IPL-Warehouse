@@ -2,7 +2,6 @@ from datetime import datetime
 from threading import Lock, Thread
 
 import requests
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -40,9 +39,11 @@ _warmup_state: dict[str, object] = {
 }
 _warmup_lock = Lock()
 
+
 class AnalyticsQuestionRequest(BaseModel):
 
     question: str = Field(min_length=5, max_length=500)
+
 
 def _run_cache_warmup() -> None:
     with _warmup_lock:
@@ -60,9 +61,11 @@ def _run_cache_warmup() -> None:
             _warmup_state["status"] = "failed"
             _warmup_state["error"] = str(error)
 
+
 @app.on_event("startup")
 def startup_warmup() -> None:
     Thread(target=_run_cache_warmup, daemon=True).start()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,9 +76,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
 
 @app.get("/api/readiness")
 def readiness() -> dict[str, object]:
@@ -83,7 +88,9 @@ def readiness() -> dict[str, object]:
 
     try:
         database_ok = bool(run_scalar("SELECT 1", default=0))
-        database_check: dict[str, object] = {"status": "ok" if database_ok else "failed"}
+        database_check: dict[str, object] = {
+            "status": "ok" if database_ok else "failed"
+        }
     except Exception as error:
         status = "not_ready"
         database_check = {"status": "failed", "error": str(error)}
@@ -118,7 +125,9 @@ def readiness() -> dict[str, object]:
             "SELECT MAX(completed_at) FROM etl_run_log WHERE status = 'success'",
             default=None,
         )
-        latest_file = run_scalar("SELECT MAX(processed_at) FROM etl_file_registry", default=None)
+        latest_file = run_scalar(
+            "SELECT MAX(processed_at) FROM etl_file_registry", default=None
+        )
         etl_status = "ok" if latest_run or latest_file else "degraded"
         if etl_status != "ok" and status == "ready":
             status = "degraded"
@@ -150,13 +159,16 @@ def readiness() -> dict[str, object]:
         },
     }
 
+
 @app.get("/api/reference/options")
 def reference_options() -> dict[str, list[str]]:
     return get_reference_options()
 
+
 @app.get("/api/query-engine/context")
 def query_engine_context() -> dict:
     return get_query_engine_context()
+
 
 @app.post("/api/query-engine")
 def query_engine(request: AnalyticsQuestionRequest) -> dict:
@@ -169,41 +181,51 @@ def query_engine(request: AnalyticsQuestionRequest) -> dict:
     except requests.HTTPError as error:
         raise HTTPException(status_code=502, detail="Groq request failed") from error
 
+
 @app.get("/api/players")
 def players(search: str = "") -> dict[str, list[str]]:
     return {"items": get_players(search)}
+
 
 @app.get("/api/home")
 def home_dashboard() -> dict:
     return get_home_dashboard()
 
+
 @app.get("/api/home/summary")
 def home_dashboard_summary() -> dict:
     return get_home_summary()
+
 
 @app.get("/api/home/leaders")
 def home_dashboard_leaders() -> dict:
     return get_home_leaders()
 
+
 @app.get("/api/batting")
 def batting_dashboard(seasons: list[str] = Query(default=[])) -> dict:
     return get_batting_dashboard(seasons)
+
 
 @app.get("/api/batting/profile")
 def batting_profile(player: str) -> dict:
     return get_batting_player_profile(player)
 
+
 @app.get("/api/bowling")
 def bowling_dashboard(seasons: list[str] = Query(default=[])) -> dict:
     return get_bowling_dashboard(seasons)
+
 
 @app.get("/api/bowling/profile")
 def bowling_profile(player: str) -> dict:
     return get_bowling_player_profile(player)
 
+
 @app.get("/api/teams/overview")
 def team_overview() -> dict[str, list[dict]]:
     return {"items": get_team_overview()}
+
 
 @app.get("/api/teams/detail")
 def team_detail(team: str, seasons: list[str] = Query(default=[])) -> dict:
@@ -211,12 +233,14 @@ def team_detail(team: str, seasons: list[str] = Query(default=[])) -> dict:
         raise HTTPException(status_code=400, detail="team is required")
     return get_team_detail(team, seasons)
 
+
 @app.get("/api/venues")
 def venue_dashboard(
     seasons: list[str] = Query(default=[]),
     venues: list[str] = Query(default=[]),
 ) -> dict:
     return get_venue_dashboard(seasons, venues)
+
 
 @app.get("/api/head-to-head")
 def head_to_head(

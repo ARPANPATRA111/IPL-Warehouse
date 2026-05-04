@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from time import perf_counter
 from textwrap import dedent
+from time import perf_counter
 from typing import Any
 
 import requests
@@ -29,9 +29,13 @@ FORBIDDEN_SQL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 CTE_PATTERN = re.compile(r"(?:with|,)\s*([a-zA-Z_][\w]*)\s+as\s*\(", re.IGNORECASE)
-TABLE_PATTERN = re.compile(r"\b(?:from|join)\s+([a-zA-Z_][\w.]*)(?:\s+[a-zA-Z_][\w]*)?", re.IGNORECASE)
+TABLE_PATTERN = re.compile(
+    r"\b(?:from|join)\s+([a-zA-Z_][\w.]*)(?:\s+[a-zA-Z_][\w]*)?", re.IGNORECASE
+)
 JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
-SQL_CODE_BLOCK_PATTERN = re.compile(r"```(?:sql)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+SQL_CODE_BLOCK_PATTERN = re.compile(
+    r"```(?:sql)?\s*(.*?)```", re.DOTALL | re.IGNORECASE
+)
 SQL_STATEMENT_PATTERN = re.compile(r"\b(?:with|select)\b[\s\S]*", re.IGNORECASE)
 SEASON_LITERAL_PATTERN = re.compile(
     r"(?P<column>\b[a-zA-Z_][\w.]*season\b)\s*(?P<operator>=|!=|<>|>=|<=|>|<)\s*(?P<value>\d{4})\b",
@@ -53,7 +57,9 @@ PLAYER_NAME_FILTER_PATTERN = re.compile(
     r"(?P<column>\b[a-zA-Z_][\w.]*player_name\b)\s*(?P<operator>=|ILIKE|LIKE)\s*'(?P<value>[^']+)'",
     re.IGNORECASE,
 )
-PLAYER_NAME_CANDIDATE_PATTERN = re.compile(r"(?P<name>[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})(?:'s)?")
+PLAYER_NAME_CANDIDATE_PATTERN = re.compile(
+    r"(?P<name>[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})(?:'s)?"
+)
 
 SQL_CLAUSE_KEYWORDS = {
     "where",
@@ -98,8 +104,7 @@ RESERVED_ALIAS_REWRITES = {
     "with": "with_alias",
 }
 
-SCHEMA_CONTEXT = dedent(
-    """
+SCHEMA_CONTEXT = dedent("""
     You are generating SQL for an IPL cricket analytics warehouse in PostgreSQL.
 
     Source coverage confirmed from the raw IPL JSON corpus:
@@ -162,8 +167,7 @@ SCHEMA_CONTEXT = dedent(
     - legal_ball_number is a sequence within an over, not a countable metric. To count balls, use SUM(CASE WHEN is_legal_delivery THEN 1 ELSE 0 END).
     - For wickets credited to bowlers, exclude dismissal types like 'run out', 'retired hurt', 'retired out', and 'obstructing the field' unless the question asks for all dismissals.
     - Keep result sets compact and presentation-ready.
-    """
-).strip()
+    """).strip()
 
 QUERY_EXAMPLES = [
     "Show the top 10 batsmen by total runs with strike rate.",
@@ -178,6 +182,7 @@ QUERY_EXAMPLES = [
     "List player of the match leaders for each season with their teams.",
 ]
 
+
 @dataclass
 class GeneratedQuery:
 
@@ -185,12 +190,14 @@ class GeneratedQuery:
     explanation: str
     sql: str
 
+
 def get_query_engine_context() -> dict[str, Any]:
     return {
         "schema_summary": f"{SCHEMA_CONTEXT}\n\nLoaded warehouse context:\n{_get_available_filters_summary()}",
         "examples": QUERY_EXAMPLES,
         "row_limit": get_settings().analytics_query_row_limit,
     }
+
 
 def _get_available_filters_summary() -> str:
     try:
@@ -206,6 +213,7 @@ def _get_available_filters_summary() -> str:
         f"Sample teams: {teams}. "
         f"Sample venues: {venues}."
     )
+
 
 def _escape_json_control_chars(content: str) -> str:
 
@@ -251,6 +259,7 @@ def _escape_json_control_chars(content: str) -> str:
 
     return "".join(repaired)
 
+
 def _extract_json_payload(content: str) -> dict[str, Any]:
     content = content.strip()
     if content.startswith("```"):
@@ -275,6 +284,7 @@ def _extract_json_payload(content: str) -> dict[str, Any]:
 
     raise ValueError("Groq response did not contain valid JSON")
 
+
 def _extract_sql_fallback(content: str) -> str | None:
 
     code_block_match = SQL_CODE_BLOCK_PATTERN.search(content)
@@ -289,8 +299,10 @@ def _extract_sql_fallback(content: str) -> str | None:
 
     return None
 
+
 def _extract_cte_names(sql: str) -> set[str]:
     return {match.group(1).lower() for match in CTE_PATTERN.finditer(sql)}
+
 
 def _extract_referenced_tables(sql: str) -> set[str]:
     tables: set[str] = set()
@@ -298,6 +310,7 @@ def _extract_referenced_tables(sql: str) -> set[str]:
         table_name = match.group(1).split(".")[-1].lower()
         tables.add(table_name)
     return tables
+
 
 def _quote_season_literals(sql: str) -> str:
 
@@ -314,6 +327,7 @@ def _quote_season_literals(sql: str) -> str:
     normalized = SEASON_LITERAL_PATTERN.sub(replace_literal, sql)
     return SEASON_IN_PATTERN.sub(replace_in_clause, normalized)
 
+
 def _rewrite_boolean_counts(sql: str) -> str:
 
     def replace_count(match: re.Match[str]) -> str:
@@ -323,6 +337,7 @@ def _rewrite_boolean_counts(sql: str) -> str:
         return f"SUM(CASE WHEN {expression} THEN 1 ELSE 0 END)"
 
     return BOOLEAN_COUNT_PATTERN.sub(replace_count, sql)
+
 
 def _rewrite_reserved_aliases(sql: str) -> str:
     alias_map: dict[str, str] = {}
@@ -343,21 +358,34 @@ def _rewrite_reserved_aliases(sql: str) -> str:
 
     normalized = TABLE_ALIAS_PATTERN.sub(replace_alias, sql)
     for original_alias, replacement in alias_map.items():
-        normalized = re.sub(rf"\b{re.escape(original_alias)}\.", f"{replacement}.", normalized)
+        normalized = re.sub(
+            rf"\b{re.escape(original_alias)}\.", f"{replacement}.", normalized
+        )
 
     return normalized
+
 
 def _rewrite_player_name_filters(sql: str) -> str:
     def replace_player_name_filter(match: re.Match[str]) -> str:
         raw_value = match.group("value")
-        normalized_tokens = re.findall(r"[a-z0-9]+", raw_value.replace("%", " ").lower())
+        normalized_tokens = re.findall(
+            r"[a-z0-9]+", raw_value.replace("%", " ").lower()
+        )
         if len(normalized_tokens) < 2:
             return match.group(0)
 
         normalized_full = "".join(normalized_tokens)
-        initial_surname = "".join(token[0] for token in normalized_tokens[:-1]) + normalized_tokens[-1]
-        normalized_column = f"regexp_replace(lower({match.group('column')}), '[^a-z0-9]', '', 'g')"
-        expressions = [f"{match.group('column')} {match.group('operator')} '{raw_value}'", f"{normalized_column} = '{normalized_full}'"]
+        initial_surname = (
+            "".join(token[0] for token in normalized_tokens[:-1])
+            + normalized_tokens[-1]
+        )
+        normalized_column = (
+            f"regexp_replace(lower({match.group('column')}), '[^a-z0-9]', '', 'g')"
+        )
+        expressions = [
+            f"{match.group('column')} {match.group('operator')} '{raw_value}'",
+            f"{normalized_column} = '{normalized_full}'",
+        ]
 
         if initial_surname and initial_surname != normalized_full:
             expressions.append(f"{normalized_column} = '{initial_surname}'")
@@ -366,6 +394,7 @@ def _rewrite_player_name_filters(sql: str) -> str:
         return "(" + " OR ".join(expressions) + ")"
 
     return PLAYER_NAME_FILTER_PATTERN.sub(replace_player_name_filter, sql)
+
 
 def _format_answer_value(value: Any) -> str:
     if value is None:
@@ -380,8 +409,10 @@ def _format_answer_value(value: Any) -> str:
         return f"{value:,.2f}".rstrip("0").rstrip(".")
     return str(value)
 
+
 def _format_answer_column(column: str) -> str:
     return column.replace("_", " ")
+
 
 def _build_answer_payload(result_rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not result_rows:
@@ -392,7 +423,9 @@ def _build_answer_payload(result_rows: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     first_row = result_rows[0]
-    populated_items = [(column, value) for column, value in first_row.items() if value is not None]
+    populated_items = [
+        (column, value) for column, value in first_row.items() if value is not None
+    ]
 
     if len(result_rows) == 1 and len(populated_items) == 1:
         column, value = populated_items[0]
@@ -436,6 +469,7 @@ def _build_answer_payload(result_rows: list[dict[str, Any]]) -> dict[str, Any]:
         "answer_source": "warehouse",
     }
 
+
 def _get_entity_resolution_summary(question: str) -> str:
     hints: list[str] = []
     seen_candidates: set[str] = set()
@@ -453,12 +487,15 @@ def _get_entity_resolution_summary(question: str) -> str:
             resolved_player = None
 
         if resolved_player and resolved_player.lower() != candidate.lower():
-            hints.append(f'Player hint: "{candidate}" appears as "{resolved_player}" in dim_player.')
+            hints.append(
+                f'Player hint: "{candidate}" appears as "{resolved_player}" in dim_player.'
+            )
 
     if not hints:
         return "No extra entity hints were resolved."
 
     return "\n".join(f"- {hint}" for hint in hints)
+
 
 def _normalize_sql(sql: str) -> str:
     repaired = _quote_season_literals(sql)
@@ -466,6 +503,7 @@ def _normalize_sql(sql: str) -> str:
     repaired = _rewrite_reserved_aliases(repaired)
     repaired = _rewrite_player_name_filters(repaired)
     return repaired
+
 
 def validate_read_only_sql(sql: str) -> str:
     normalized = sql.strip().rstrip(";")
@@ -488,6 +526,7 @@ def validate_read_only_sql(sql: str) -> str:
 
     return normalized
 
+
 def enforce_result_limit(sql: str) -> str:
     row_limit = get_settings().analytics_query_row_limit
     limit_match = re.search(r"\blimit\s+(\d+)\b", sql, flags=re.IGNORECASE)
@@ -505,6 +544,7 @@ def enforce_result_limit(sql: str) -> str:
         count=1,
         flags=re.IGNORECASE,
     )
+
 
 def _call_groq(messages: list[dict[str, str]]) -> str:
     settings = get_settings()
@@ -528,6 +568,7 @@ def _call_groq(messages: list[dict[str, str]]) -> str:
     payload = response.json()
     return payload["choices"][0]["message"]["content"]
 
+
 def _build_generation_messages(question: str) -> list[dict[str, str]]:
     settings = get_settings()
     return [
@@ -545,9 +586,7 @@ def _build_generation_messages(question: str) -> list[dict[str, str]]:
                 f"Schema context:\n{SCHEMA_CONTEXT}\n\n"
                 f"Loaded warehouse context:\n{_get_available_filters_summary()}\n\n"
                 f"Entity resolution hints:\n{_get_entity_resolution_summary(question)}\n\n"
-                f"Examples:\n- "
-                + "\n- ".join(QUERY_EXAMPLES)
-                + "\n\n"
+                f"Examples:\n- " + "\n- ".join(QUERY_EXAMPLES) + "\n\n"
                 f"Question: {question}\n\n"
                 "Requirements:\n"
                 f"- The query must stay within these tables only: {', '.join(sorted(ALLOWED_TABLES))}.\n"
@@ -563,6 +602,7 @@ def _build_generation_messages(question: str) -> list[dict[str, str]]:
         },
     ]
 
+
 def _parse_generated_content(content: str, question: str) -> dict[str, Any]:
     try:
         return _extract_json_payload(content)
@@ -577,17 +617,23 @@ def _parse_generated_content(content: str, question: str) -> dict[str, Any]:
             "sql": fallback_sql,
         }
 
+
 def generate_sql(question: str) -> GeneratedQuery:
     settings = get_settings()
     if not settings.groq_api_key:
         raise RuntimeError("GROQ_API_KEY is not configured")
 
-    parsed = _parse_generated_content(_call_groq(_build_generation_messages(question)), question)
+    parsed = _parse_generated_content(
+        _call_groq(_build_generation_messages(question)), question
+    )
     raw_sql = str(parsed.get("sql", ""))
     sql = enforce_result_limit(validate_read_only_sql(_normalize_sql(raw_sql)))
     title = str(parsed.get("title") or "Ad hoc analytics query")
-    explanation = str(parsed.get("explanation") or "Generated from the supplied question.")
+    explanation = str(
+        parsed.get("explanation") or "Generated from the supplied question."
+    )
     return GeneratedQuery(title=title, explanation=explanation, sql=sql)
+
 
 def repair_sql(question: str, failed_sql: str, error_message: str) -> GeneratedQuery:
     settings = get_settings()
@@ -638,6 +684,7 @@ def repair_sql(question: str, failed_sql: str, error_message: str) -> GeneratedQ
     )
     return GeneratedQuery(title=title, explanation=explanation, sql=sql)
 
+
 def answer_analytics_question(question: str) -> dict[str, Any]:
     current_result = generate_sql(question)
     last_error: Exception | None = None
@@ -676,10 +723,14 @@ def answer_analytics_question(question: str) -> dict[str, Any]:
             last_error = error
             if repair_attempt == 0:
                 try:
-                    current_result = repair_sql(question, current_result.sql, str(error))
+                    current_result = repair_sql(
+                        question, current_result.sql, str(error)
+                    )
                     continue
                 except Exception:
                     pass
             break
 
-    raise ValueError(f"Generated SQL could not be executed safely: {last_error}") from last_error
+    raise ValueError(
+        f"Generated SQL could not be executed safely: {last_error}"
+    ) from last_error

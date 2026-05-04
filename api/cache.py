@@ -9,6 +9,7 @@ from config.settings import get_settings
 
 ReturnType = TypeVar("ReturnType")
 
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, dict):
         return tuple(sorted((key, _freeze(item)) for key, item in value.items()))
@@ -18,7 +19,10 @@ def _freeze(value: Any) -> Any:
         return tuple(sorted(_freeze(item) for item in value))
     return value
 
-def ttl_cache(max_entries: int = 128) -> Callable[[Callable[..., ReturnType]], Callable[..., ReturnType]]:
+
+def ttl_cache(
+    max_entries: int = 128,
+) -> Callable[[Callable[..., ReturnType]], Callable[..., ReturnType]]:
 
     def decorator(func: Callable[..., ReturnType]) -> Callable[..., ReturnType]:
         cache: "OrderedDict[Any, tuple[float, ReturnType]]" = OrderedDict()

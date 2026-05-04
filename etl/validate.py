@@ -9,6 +9,7 @@ from config.settings import get_settings
 
 logger = get_logger("validate")
 
+
 @dataclass
 class ValidationResult:
 
@@ -17,7 +18,25 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-def validate_schema(data: dict[str, Any], file_path: Path) -> list[str]:
+
+def _resolve_validation_path(file_path: Path | None) -> Path:
+    return file_path if file_path is not None else Path("<memory>")
+
+
+def _build_validation_result(
+    file_path: Path | None,
+    errors: list[str],
+    warnings: list[str] | None = None,
+) -> ValidationResult:
+    return ValidationResult(
+        is_valid=len(errors) == 0,
+        file_path=_resolve_validation_path(file_path),
+        errors=errors,
+        warnings=warnings or [],
+    )
+
+
+def _validate_schema_errors(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
     required_keys = ["meta", "info", "innings"]
@@ -33,40 +52,52 @@ def validate_schema(data: dict[str, Any], file_path: Path) -> list[str]:
 
     if "info" in data:
         info = data["info"]
-        required_info = ["teams", "dates", "overs", "gender", "match_type", "toss", "outcome"]
+        required_info = [
+            "teams",
+            "dates",
+            "overs",
+            "gender",
+            "match_type",
+            "toss",
+            "outcome",
+        ]
         for key in required_info:
             if key not in info:
                 errors.append(f"Missing 'info.{key}'")
 
+        teams = info.get("teams")
+        if isinstance(teams, list) and len(teams) != 2:
+            errors.append(f"'info.teams' must have exactly 2 entries, got {len(teams)}")
+
     return errors
 
-def validate_data_types(data: dict[str, Any], file_path: Path) -> list[str]:
+
+def validate_schema(
+    data: dict[str, Any], file_path: Path | None = None
+) -> ValidationResult:
+    return _build_validation_result(file_path, _validate_schema_errors(data))
+
+
+def _validate_data_type_errors(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     info = data.get("info", {})
-
 
     dates = info.get("dates")
     if dates is not None and not isinstance(dates, list):
         errors.append(f"'info.dates' must be a list, got {type(dates).__name__}")
 
-
     teams = info.get("teams")
     if teams is not None:
         if not isinstance(teams, list):
             errors.append(f"'info.teams' must be a list, got {type(teams).__name__}")
-        elif len(teams) != 2:
-            errors.append(f"'info.teams' must have exactly 2 entries, got {len(teams)}")
-
 
     overs = info.get("overs")
     if overs is not None and not isinstance(overs, int):
         errors.append(f"'info.overs' must be an integer, got {type(overs).__name__}")
 
-
     innings = data.get("innings")
     if innings is not None and not isinstance(innings, list):
         errors.append(f"'innings' must be a list, got {type(innings).__name__}")
-
 
     toss = info.get("toss")
     if toss is not None and not isinstance(toss, dict):
@@ -74,25 +105,34 @@ def validate_data_types(data: dict[str, Any], file_path: Path) -> list[str]:
 
     return errors
 
-def validate_business_rules(data: dict[str, Any], file_path: Path) -> tuple[list[str], list[str]]:
+
+def validate_data_types(
+    data: dict[str, Any], file_path: Path | None = None
+) -> ValidationResult:
+    return _build_validation_result(file_path, _validate_data_type_errors(data))
+
+
+def _validate_business_rule_results(
+    data: dict[str, Any],
+) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     info = data.get("info", {})
     innings = data.get("innings", [])
-
 
     if len(innings) < 1:
         errors.append(f"Match must have at least 1 innings, got {len(innings)}")
     elif len(innings) > 5:
         warnings.append(f"Unusual number of innings: {len(innings)}")
 
-
     bpo = info.get("balls_per_over", 6)
     if bpo != 6:
         warnings.append(f"Unexpected balls_per_over: {bpo}")
 
-
     teams = info.get("teams", [])
+    if teams and len(teams) != 2:
+        errors.append(f"Match must list exactly 2 teams, got {len(teams)}")
+
     players = info.get("players", {})
     if players:
         for team in teams:
@@ -103,7 +143,6 @@ def validate_business_rules(data: dict[str, Any], file_path: Path) -> tuple[list
                     f"Team '{team}' has fewer than 11 players: {len(players.get(team, []))}"
                 )
 
-
     toss = info.get("toss", {})
     if toss:
         toss_winner = toss.get("winner")
@@ -113,7 +152,6 @@ def validate_business_rules(data: dict[str, Any], file_path: Path) -> tuple[list
         if toss_decision and toss_decision not in ("bat", "field"):
             errors.append(f"Invalid toss decision: '{toss_decision}'")
 
-
     for i, inn in enumerate(innings):
         if "team" not in inn:
             errors.append(f"Innings {i+1} missing 'team' field")
@@ -121,7 +159,8 @@ def validate_business_rules(data: dict[str, Any], file_path: Path) -> tuple[list
             errors.append(f"Innings {i+1} missing 'overs' field")
         elif not isinstance(inn["overs"], list):
             errors.append(f"Innings {i+1} 'overs' must be a list")
-
+        elif len(inn["overs"]) == 0:
+            warnings.append(f"Innings {i+1} has no overs recorded")
 
     outcome = info.get("outcome", {})
     if outcome:
@@ -132,10 +171,17 @@ def validate_business_rules(data: dict[str, Any], file_path: Path) -> tuple[list
 
     return errors, warnings
 
+
+def validate_business_rules(
+    data: dict[str, Any], file_path: Path | None = None
+) -> ValidationResult:
+    errors, warnings = _validate_business_rule_results(data)
+    return _build_validation_result(file_path, errors, warnings)
+
+
 def validate_file(file_path: Path) -> ValidationResult:
     all_errors: list[str] = []
     all_warnings: list[str] = []
-
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -153,10 +199,8 @@ def validate_file(file_path: Path) -> ValidationResult:
             errors=[f"Cannot read file: {e}"],
         )
 
-
-    schema_errors = validate_schema(data, file_path)
+    schema_errors = _validate_schema_errors(data)
     all_errors.extend(schema_errors)
-
 
     if schema_errors:
         return ValidationResult(
@@ -166,12 +210,10 @@ def validate_file(file_path: Path) -> ValidationResult:
             warnings=all_warnings,
         )
 
-
-    type_errors = validate_data_types(data, file_path)
+    type_errors = _validate_data_type_errors(data)
     all_errors.extend(type_errors)
 
-
-    biz_errors, biz_warnings = validate_business_rules(data, file_path)
+    biz_errors, biz_warnings = _validate_business_rule_results(data)
     all_errors.extend(biz_errors)
     all_warnings.extend(biz_warnings)
 
@@ -180,7 +222,9 @@ def validate_file(file_path: Path) -> ValidationResult:
     if not is_valid:
         logger.warning(f"Validation FAILED for {file_path.name}: {all_errors}")
     elif all_warnings:
-        logger.debug(f"Validation passed with warnings for {file_path.name}: {all_warnings}")
+        logger.debug(
+            f"Validation passed with warnings for {file_path.name}: {all_warnings}"
+        )
 
     return ValidationResult(
         is_valid=is_valid,
@@ -188,6 +232,7 @@ def validate_file(file_path: Path) -> ValidationResult:
         errors=all_errors,
         warnings=all_warnings,
     )
+
 
 def reject_file(file_path: Path, errors: list[str]) -> None:
     settings = get_settings()
@@ -206,7 +251,10 @@ def reject_file(file_path: Path, errors: list[str]) -> None:
 
     logger.info(f"Rejected file moved to: {dest}")
 
-def run_validate(files: list[Path], reject_invalid: bool = True) -> tuple[list[Path], list[Path]]:
+
+def run_validate(
+    files: list[Path], reject_invalid: bool = True
+) -> tuple[list[Path], list[Path]]:
     logger.info(f"Starting validation of {len(files)} files")
 
     valid_files: list[Path] = []

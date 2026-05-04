@@ -5,6 +5,7 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
@@ -14,18 +15,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-
     database_url: str = Field(
         default="postgresql://postgres:password@localhost:5432/ipl_dw",
         description="PostgreSQL connection string",
     )
 
-
     data_source_url: str = Field(
         default="https://cricsheet.org/downloads/ipl_json.zip",
         description="URL to download IPL JSON data",
     )
-
 
     groq_api_key: Optional[str] = Field(
         default=None,
@@ -40,7 +38,6 @@ class Settings(BaseSettings):
         description="Groq OpenAI-compatible chat completions endpoint",
     )
 
-
     raw_data_dir: Path = Field(
         default=Path("data/raw"),
         description="Directory for extracted raw JSON files",
@@ -53,7 +50,6 @@ class Settings(BaseSettings):
         default=Path("data/rejected"),
         description="Directory for rejected/invalid files",
     )
-
 
     batch_size: int = Field(
         default=1000,
@@ -88,12 +84,10 @@ class Settings(BaseSettings):
         description="Use serverless-safe runtime settings for platforms such as Netlify Functions",
     )
 
-
     streamlit_port: int = Field(
         default=8501,
         description="Port for Streamlit dashboard",
     )
-
 
     download_timeout_connect: int = Field(default=10)
     download_timeout_read: int = Field(default=60)
@@ -109,7 +103,11 @@ class Settings(BaseSettings):
         self.rejected_data_dir.mkdir(parents=True, exist_ok=True)
 
     def get_frontend_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
+        return [
+            origin.strip()
+            for origin in self.frontend_origins.split(",")
+            if origin.strip()
+        ]
 
     def is_serverless_runtime(self) -> bool:
         return (
@@ -119,6 +117,7 @@ class Settings(BaseSettings):
             or bool(os.getenv("VERCEL"))
             or bool(os.getenv("VERCEL_ENV"))
         )
+
 
 def get_settings() -> Settings:
     return Settings()

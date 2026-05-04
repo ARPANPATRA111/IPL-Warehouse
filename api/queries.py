@@ -2,16 +2,20 @@ import re
 from typing import Any
 
 from api.cache import ttl_cache
-from api.db import run_query, run_records, run_scalar
+from api.db import run_query, run_records
 
 PLAYER_NAME_NORMALIZED_SQL = "regexp_replace(lower(player_name), '[^a-z0-9]', '', 'g')"
+
 
 def _normalize_player_search_text(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
+
 def _build_player_search_terms(search: str) -> dict[str, str]:
     stripped_search = search.strip()
-    tokens = [token for token in re.findall(r"[a-z0-9]+", stripped_search.lower()) if token]
+    tokens = [
+        token for token in re.findall(r"[a-z0-9]+", stripped_search.lower()) if token
+    ]
     normalized_exact = _normalize_player_search_text(stripped_search)
     surname = tokens[-1] if tokens else ""
     initial_surname = ""
@@ -28,6 +32,7 @@ def _build_player_search_terms(search: str) -> dict[str, str]:
         "surname_contains": f"%{surname}%" if surname else "",
     }
 
+
 def resolve_player_name(search: str) -> str | None:
     if not search.strip():
         return None
@@ -35,15 +40,22 @@ def resolve_player_name(search: str) -> str | None:
     matches = get_players(search)
     return matches[0] if matches else None
 
-def _season_clause(seasons: list[str], alias: str) -> tuple[str, dict[str, Any], list[str]]:
+
+def _season_clause(
+    seasons: list[str], alias: str
+) -> tuple[str, dict[str, Any], list[str]]:
     if not seasons:
         return "", {}, []
     return f" AND {alias}.season IN :seasons", {"seasons": seasons}, ["seasons"]
 
-def _venue_clause(venues: list[str], alias: str) -> tuple[str, dict[str, Any], list[str]]:
+
+def _venue_clause(
+    venues: list[str], alias: str
+) -> tuple[str, dict[str, Any], list[str]]:
     if not venues:
         return "", {}, []
     return f" AND {alias}.venue_name IN :venues", {"venues": venues}, ["venues"]
+
 
 @ttl_cache(max_entries=16)
 def get_reference_options() -> dict[str, list[str]]:
@@ -58,6 +70,7 @@ def get_reference_options() -> dict[str, list[str]]:
         "teams": teams_df["team_name"].tolist() if not teams_df.empty else [],
         "venues": venues_df["venue_name"].tolist() if not venues_df.empty else [],
     }
+
 
 def get_players(search: str = "") -> list[str]:
     if search:
@@ -99,18 +112,16 @@ def get_players(search: str = "") -> list[str]:
         )
     return df["player_name"].tolist() if not df.empty else []
 
+
 @ttl_cache(max_entries=8)
 def get_home_summary() -> dict[str, Any]:
-    dimension_rows = run_records(
-        """
+    dimension_rows = run_records("""
         SELECT
             (SELECT COUNT(*) FROM dim_match) as total_matches,
             (SELECT COUNT(*) FROM dim_player) as total_players,
             (SELECT COUNT(*) FROM dim_team WHERE is_active = TRUE) as total_teams
-        """
-    )
-    fact_rows = run_records(
-        """
+        """)
+    fact_rows = run_records("""
         SELECT
             COUNT(*) as total_deliveries,
             COALESCE(SUM(runs_total), 0) as total_runs,
@@ -118,8 +129,7 @@ def get_home_summary() -> dict[str, Any]:
             COUNT(*) FILTER (WHERE is_boundary_six = TRUE) as total_sixes,
             COUNT(*) FILTER (WHERE is_boundary_four = TRUE) as total_fours
         FROM fact_deliveries
-        """
-    )
+        """)
     dimension_metrics = dimension_rows[0] if dimension_rows else {}
     fact_metrics = fact_rows[0] if fact_rows else {}
     metrics = {
@@ -133,8 +143,7 @@ def get_home_summary() -> dict[str, Any]:
         "total_fours": int(fact_metrics.get("total_fours") or 0),
     }
 
-    season_summary = run_records(
-        """
+    season_summary = run_records("""
         SELECT dm.season,
             COUNT(DISTINCT fd.match_key) as matches,
             SUM(fd.runs_total) as total_runs,
@@ -146,18 +155,17 @@ def get_home_summary() -> dict[str, Any]:
         JOIN dim_match dm ON fd.match_key = dm.match_key
         GROUP BY dm.season
         ORDER BY dm.season
-        """
-    )
+        """)
 
     return {
         "metrics": metrics,
         "season_summary": season_summary,
     }
 
+
 @ttl_cache(max_entries=8)
 def get_home_leaders() -> dict[str, Any]:
-    top_batsmen = run_records(
-        """
+    top_batsmen = run_records("""
         SELECT dp.player_name,
             SUM(fd.runs_batsman) as total_runs,
             COUNT(DISTINCT fd.match_key) as matches,
@@ -175,11 +183,9 @@ def get_home_leaders() -> dict[str, Any]:
         GROUP BY dp.player_name
         ORDER BY total_runs DESC
         LIMIT 10
-        """
-    )
+        """)
 
-    top_bowlers = run_records(
-        """
+    top_bowlers = run_records("""
         SELECT dp.player_name,
             SUM(CASE WHEN fd.is_wicket THEN 1 ELSE 0 END) as wickets,
             COUNT(DISTINCT fd.match_key) as matches,
@@ -205,13 +211,13 @@ def get_home_leaders() -> dict[str, Any]:
         HAVING SUM(CASE WHEN fd.is_wicket THEN 1 ELSE 0 END) > 0
         ORDER BY wickets DESC
         LIMIT 10
-        """
-    )
+        """)
 
     return {
         "top_batsmen": top_batsmen,
         "top_bowlers": top_bowlers,
     }
+
 
 @ttl_cache(max_entries=8)
 def get_home_dashboard() -> dict[str, Any]:
@@ -219,6 +225,7 @@ def get_home_dashboard() -> dict[str, Any]:
         **get_home_summary(),
         **get_home_leaders(),
     }
+
 
 @ttl_cache(max_entries=64)
 def get_batting_dashboard(seasons: list[str]) -> dict[str, Any]:
@@ -254,13 +261,14 @@ def get_batting_dashboard(seasons: list[str]) -> dict[str, Any]:
     )
     return {"leaderboard": leaderboard}
 
+
 @ttl_cache(max_entries=128)
 def get_batting_player_profile(player: str) -> dict[str, Any]:
     resolved_player = resolve_player_name(player) or player
     return {
         "player_name": resolved_player,
         "seasons": run_records(
-        """
+            """
         SELECT dm.season,
             SUM(fd.runs_batsman) as runs,
             COUNT(DISTINCT fd.match_key) as matches,
@@ -281,6 +289,7 @@ def get_batting_player_profile(player: str) -> dict[str, Any]:
             params={"player": resolved_player},
         ),
     }
+
 
 @ttl_cache(max_entries=64)
 def get_bowling_dashboard(seasons: list[str]) -> dict[str, Any]:
@@ -320,13 +329,14 @@ def get_bowling_dashboard(seasons: list[str]) -> dict[str, Any]:
     )
     return {"leaderboard": leaderboard}
 
+
 @ttl_cache(max_entries=128)
 def get_bowling_player_profile(player: str) -> dict[str, Any]:
     resolved_player = resolve_player_name(player) or player
     return {
         "player_name": resolved_player,
         "seasons": run_records(
-        """
+            """
         SELECT dm.season,
             SUM(CASE WHEN fd.is_wicket THEN 1 ELSE 0 END) as wickets,
             COUNT(DISTINCT fd.match_key) as matches,
@@ -347,10 +357,10 @@ def get_bowling_player_profile(player: str) -> dict[str, Any]:
         ),
     }
 
+
 @ttl_cache(max_entries=16)
 def get_team_overview() -> list[dict[str, Any]]:
-    return run_records(
-        """
+    return run_records("""
         SELECT dt.team_name,
             COUNT(*) as matches_played,
             SUM(CASE WHEN fms.match_winner_key = dt.team_key THEN 1 ELSE 0 END) as wins,
@@ -365,8 +375,8 @@ def get_team_overview() -> list[dict[str, Any]]:
         WHERE fms.result != 'no result'
         GROUP BY dt.team_name, dt.team_key
         ORDER BY win_pct DESC
-        """
-    )
+        """)
+
 
 @ttl_cache(max_entries=64)
 def get_team_detail(team: str, seasons: list[str]) -> dict[str, Any]:
@@ -411,6 +421,7 @@ def get_team_detail(team: str, seasons: list[str]) -> dict[str, Any]:
         "season_performance": season_performance,
         "toss_analysis": toss_analysis,
     }
+
 
 @ttl_cache(max_entries=64)
 def get_venue_dashboard(seasons: list[str], venues: list[str]) -> dict[str, Any]:
@@ -476,6 +487,7 @@ def get_venue_dashboard(seasons: list[str], venues: list[str]) -> dict[str, Any]
         "chase_stats": chase_stats,
     }
 
+
 @ttl_cache(max_entries=64)
 def get_head_to_head(team1: str, team2: str, seasons: list[str]) -> dict[str, Any]:
     season_clause, season_params, season_expanding = _season_clause(seasons, "fms")
@@ -540,18 +552,23 @@ def get_head_to_head(team1: str, team2: str, seasons: list[str]) -> dict[str, An
         params={"team1": team1, "team2": team2},
     )
 
-    overall = overall_rows[0] if overall_rows else {
-        "total_matches": 0,
-        "team1_wins": 0,
-        "team2_wins": 0,
-        "no_result": 0,
-    }
+    overall = (
+        overall_rows[0]
+        if overall_rows
+        else {
+            "total_matches": 0,
+            "team1_wins": 0,
+            "team2_wins": 0,
+            "no_result": 0,
+        }
+    )
 
     return {
         "overall": overall,
         "season_breakdown": season_breakdown,
         "performers": performers,
     }
+
 
 def warm_analytics_cache() -> dict[str, str]:
     warmed: dict[str, str] = {}

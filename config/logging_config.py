@@ -6,6 +6,7 @@ from typing import Any
 
 from config.settings import get_settings
 
+
 class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
@@ -27,6 +28,7 @@ class JSONFormatter(logging.Formatter):
 
         return json.dumps(log_entry)
 
+
 def setup_logging() -> logging.Logger:
     settings = get_settings()
 
@@ -36,19 +38,28 @@ def setup_logging() -> logging.Logger:
     if logger.handlers:
         logger.handlers.clear()
 
-
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, settings.log_level.upper()))
     console_handler.setFormatter(JSONFormatter())
     logger.addHandler(console_handler)
 
-
     logger.propagate = False
 
     return logger
+
 
 def get_logger(name: str) -> logging.Logger:
     parent = logging.getLogger("ipl_dw")
     if not parent.handlers:
         setup_logging()
-    return parent.getChild(name)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(parent.level)
+
+    if list(logger.handlers) != list(parent.handlers):
+        logger.handlers.clear()
+        for handler in parent.handlers:
+            logger.addHandler(handler)
+
+    logger.propagate = False
+    return logger

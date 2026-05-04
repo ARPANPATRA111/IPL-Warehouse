@@ -6,12 +6,18 @@ from typing import Optional
 from config.logging_config import get_logger
 from config.settings import get_settings
 from etl.data_quality import run_data_quality_checks
-from etl.extract import build_tracked_files, filter_new_files, run_extract, run_extract_local
+from etl.extract import (
+    build_tracked_files,
+    filter_new_files,
+    run_extract,
+    run_extract_local,
+)
 from etl.load import DatabaseLoader, FileRegistryEntry
 from etl.transform import TransformResult, run_transform
 from etl.validate import run_validate
 
 logger = get_logger("pipeline")
+
 
 class ETLPipeline:
 
@@ -41,9 +47,7 @@ class ETLPipeline:
             self.run_id = self.loader.start_etl_run(self.settings.etl_version)
             logger.info(f"ETL Run ID: {self.run_id}")
 
-
             self._ensure_schema()
-
 
             json_files = self._extract()
             if not json_files:
@@ -53,38 +57,41 @@ class ETLPipeline:
 
             tracked_files = self._select_files_for_processing(json_files)
             if not tracked_files:
-                logger.info("No new or changed files detected; skipping transform and load")
+                logger.info(
+                    "No new or changed files detected; skipping transform and load"
+                )
                 self._complete_run("success", 0, len(json_files), 0)
                 return True
 
-
-            valid_files, invalid_files = self._validate([tracked_file.path for tracked_file in tracked_files])
+            valid_files, invalid_files = self._validate(
+                [tracked_file.path for tracked_file in tracked_files]
+            )
             if not valid_files:
                 logger.warning("No valid files after validation")
                 self._complete_run("success", 0, len(invalid_files), 0)
                 return True
 
-            tracked_by_match_id = {tracked_file.match_id: tracked_file for tracked_file in tracked_files}
+            tracked_by_match_id = {
+                tracked_file.match_id: tracked_file for tracked_file in tracked_files
+            }
             valid_tracked_files = [
                 tracked_by_match_id[file_path.stem]
                 for file_path in valid_files
                 if file_path.stem in tracked_by_match_id
             ]
 
-
             transform_result = self._transform(valid_files)
             if transform_result.files_processed == 0:
                 logger.error("Transform produced no results")
-                self._complete_run("failed", 0, len(tracked_files), 0, "Transform produced no data")
+                self._complete_run(
+                    "failed", 0, len(tracked_files), 0, "Transform produced no data"
+                )
                 return False
-
 
             rows_loaded, successful_match_ids = self._load(transform_result)
             self._record_processed_files(valid_tracked_files, successful_match_ids)
 
-
             dq_report = self._run_quality_checks()
-
 
             elapsed = time.time() - self.start_time
             files_processed = len(successful_match_ids)
@@ -117,7 +124,9 @@ class ETLPipeline:
         if self.full_refresh or not schema_exists:
             self._setup_schema()
         else:
-            logger.info("Warehouse schema already exists; skipping destructive schema rebuild")
+            logger.info(
+                "Warehouse schema already exists; skipping destructive schema rebuild"
+            )
 
         self.loader.ensure_file_registry_table()
 
@@ -187,7 +196,6 @@ class ETLPipeline:
         logger.info("Starting load phase...")
         total_rows = 0
 
-
         logger.info("Loading dimension tables...")
         date_key_map = self.loader.load_dim_dates(transform_result.df_dates)
         total_rows += len(date_key_map)
@@ -209,12 +217,10 @@ class ETLPipeline:
         )
         total_rows += len(innings_key_map)
 
-
         player_name_to_id: dict[str, str] = {}
         if not transform_result.df_players.empty:
             for _, row in transform_result.df_players.iterrows():
                 player_name_to_id[row["player_name"]] = row["player_id"]
-
 
         logger.info("Loading fact tables...")
         match_summaries_df = getattr(transform_result, "df_match_summaries", None)
@@ -244,7 +250,9 @@ class ETLPipeline:
         logger.info(f"Load complete: {total_rows} total rows loaded")
         return total_rows, delivery_report.successful_match_ids
 
-    def _record_processed_files(self, tracked_files: list, successful_match_ids: set[str]) -> None:
+    def _record_processed_files(
+        self, tracked_files: list, successful_match_ids: set[str]
+    ) -> None:
         if not successful_match_ids:
             logger.warning("No successful match IDs were recorded during load")
             return
@@ -276,8 +284,14 @@ class ETLPipeline:
     ) -> None:
         if self.run_id:
             self.loader.complete_etl_run(
-                self.run_id, status, files_processed, files_skipped, rows_loaded, error_message
+                self.run_id,
+                status,
+                files_processed,
+                files_skipped,
+                rows_loaded,
+                error_message,
             )
+
 
 def main():
     import argparse
@@ -319,6 +333,7 @@ def main():
 
     success = pipeline.run()
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     main()

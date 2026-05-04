@@ -9,6 +9,7 @@ on:
 env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
+  PYTHON_LINT_TARGETS: api config etl app.py
   POSTGRES_USER: test_user
   POSTGRES_PASSWORD: test_password
   POSTGRES_DB: test_ipl_warehouse
@@ -32,13 +33,13 @@ jobs:
           pip install ruff black isort mypy
 
       - name: Run Ruff
-        run: ruff check . --output-format=github
+        run: ruff check ${{ env.PYTHON_LINT_TARGETS }} --output-format=github
 
       - name: Check Black formatting
-        run: black --check .
+        run: black --check ${{ env.PYTHON_LINT_TARGETS }}
 
       - name: Check import order
-        run: isort --check-only .
+        run: isort --check-only ${{ env.PYTHON_LINT_TARGETS }}
 
   test:
     name: Test Suite

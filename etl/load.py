@@ -12,6 +12,7 @@ from config.settings import get_settings
 
 logger = get_logger("load")
 
+
 @dataclass(frozen=True)
 class FileRegistryEntry:
 
@@ -20,12 +21,14 @@ class FileRegistryEntry:
     file_checksum: str
     source_checksum: Optional[str] = None
 
+
 @dataclass(frozen=True)
 class FactLoadReport:
 
     rows_loaded: int
     successful_match_ids: set[str]
     failed_match_ids: set[str]
+
 
 class DatabaseLoader:
 
@@ -135,15 +138,13 @@ class DatabaseLoader:
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
+                cur.execute("""
                     SELECT EXISTS (
                         SELECT 1
                         FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name = 'dim_match'
                     )
-                    """
-                )
+                    """)
                 return bool(cur.fetchone()[0])
         finally:
             self.return_connection(conn)
@@ -178,8 +179,7 @@ class DatabaseLoader:
 
     @staticmethod
     def _create_file_registry_table(cur: psycopg2.extensions.cursor) -> None:
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS etl_file_registry (
                 match_id VARCHAR(50) PRIMARY KEY,
                 file_name VARCHAR(255) NOT NULL,
@@ -188,8 +188,7 @@ class DatabaseLoader:
                 run_id INT REFERENCES etl_run_log(run_id),
                 processed_at TIMESTAMP NOT NULL DEFAULT NOW()
             )
-            """
-        )
+            """)
 
     def get_processed_file_registry(self) -> dict[str, str]:
         conn = self.get_connection()
@@ -318,7 +317,9 @@ class DatabaseLoader:
                     template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     fetch=True,
                 )
-                mapping = {str(full_date): date_key for full_date, date_key in returned_rows}
+                mapping = {
+                    str(full_date): date_key for full_date, date_key in returned_rows
+                }
 
             conn.commit()
             logger.info(f"Loaded {len(mapping)} date records")
@@ -453,7 +454,9 @@ class DatabaseLoader:
                     template="(%s, %s, %s, %s, %s)",
                     fetch=True,
                 )
-                mapping = {player_id: player_key for player_id, player_key in returned_rows}
+                mapping = {
+                    player_id: player_key for player_id, player_key in returned_rows
+                }
 
             conn.commit()
             logger.info(f"Loaded {len(mapping)} player records")
@@ -525,7 +528,9 @@ class DatabaseLoader:
         mapping: dict[str, int] = {}
         try:
             with conn.cursor() as cur:
-                reverse_match_key_map = {value: key for key, value in match_key_map.items()}
+                reverse_match_key_map = {
+                    value: key for key, value in match_key_map.items()
+                }
                 values = []
                 for row in self._iter_records(df):
                     match_key = match_key_map.get(row["match_id"])
@@ -646,7 +651,9 @@ class DatabaseLoader:
                                 toss_winner_key,
                             ]
                         ):
-                            logger.warning(f"Skipping match summary for {match_id}: missing keys")
+                            logger.warning(
+                                f"Skipping match summary for {match_id}: missing keys"
+                            )
                             failed_match_ids.add(match_id)
                             continue
 
@@ -707,7 +714,9 @@ class DatabaseLoader:
                         rows_loaded = len(values_list)
 
                     logger.info(f"Loaded {rows_loaded} match summary records")
-                    return FactLoadReport(rows_loaded, successful_match_ids, failed_match_ids)
+                    return FactLoadReport(
+                        rows_loaded, successful_match_ids, failed_match_ids
+                    )
 
                 for row in self._iter_records(df):
                     match_id = row["match_id"]
@@ -718,8 +727,16 @@ class DatabaseLoader:
                         team1_key = team_key_map.get(row["team1"])
                         team2_key = team_key_map.get(row["team2"])
                         toss_winner_key = team_key_map.get(row["toss_winner"])
-                        match_winner_key = team_key_map.get(row["match_winner"]) if row.get("match_winner") else None
-                        eliminator_key = team_key_map.get(row["eliminator_winner"]) if row.get("eliminator_winner") else None
+                        match_winner_key = (
+                            team_key_map.get(row["match_winner"])
+                            if row.get("match_winner")
+                            else None
+                        )
+                        eliminator_key = (
+                            team_key_map.get(row["eliminator_winner"])
+                            if row.get("eliminator_winner")
+                            else None
+                        )
 
                         pom_key = None
                         pom_name = row.get("player_of_match")
@@ -727,8 +744,19 @@ class DatabaseLoader:
                             pom_id = player_name_to_id[pom_name]
                             pom_key = player_key_map.get(pom_id)
 
-                        if not all([match_key, date_key, venue_key, team1_key, team2_key, toss_winner_key]):
-                            logger.warning(f"Skipping match summary for {match_id}: missing keys")
+                        if not all(
+                            [
+                                match_key,
+                                date_key,
+                                venue_key,
+                                team1_key,
+                                team2_key,
+                                toss_winner_key,
+                            ]
+                        ):
+                            logger.warning(
+                                f"Skipping match summary for {match_id}: missing keys"
+                            )
                             failed_match_ids.add(match_id)
                             continue
 
@@ -751,15 +779,31 @@ class DatabaseLoader:
                                 total_sixes = EXCLUDED.total_sixes
                             """,
                             (
-                                match_key, date_key, venue_key,
-                                team1_key, team2_key, toss_winner_key, row["toss_decision"],
-                                match_winner_key, row.get("win_type"), row.get("win_margin"),
-                                row.get("is_dls", False), row["result"],
-                                eliminator_key, pom_key,
-                                row.get("team1_score"), row.get("team1_wickets"), row.get("team1_overs"),
-                                row.get("team2_score"), row.get("team2_wickets"), row.get("team2_overs"),
-                                row.get("total_fours", 0), row.get("total_sixes", 0),
-                                row.get("total_extras", 0), row["season"], row.get("match_number"),
+                                match_key,
+                                date_key,
+                                venue_key,
+                                team1_key,
+                                team2_key,
+                                toss_winner_key,
+                                row["toss_decision"],
+                                match_winner_key,
+                                row.get("win_type"),
+                                row.get("win_margin"),
+                                row.get("is_dls", False),
+                                row["result"],
+                                eliminator_key,
+                                pom_key,
+                                row.get("team1_score"),
+                                row.get("team1_wickets"),
+                                row.get("team1_overs"),
+                                row.get("team2_score"),
+                                row.get("team2_wickets"),
+                                row.get("team2_overs"),
+                                row.get("total_fours", 0),
+                                row.get("total_sixes", 0),
+                                row.get("total_extras", 0),
+                                row["season"],
+                                row.get("match_number"),
                             ),
                         )
                         conn.commit()
@@ -768,7 +812,9 @@ class DatabaseLoader:
                     except Exception as match_error:
                         conn.rollback()
                         failed_match_ids.add(match_id)
-                        logger.error(f"Failed to load match summary for {match_id}: {match_error}")
+                        logger.error(
+                            f"Failed to load match summary for {match_id}: {match_error}"
+                        )
 
             logger.info(f"Loaded {rows_loaded} match summary records")
         except Exception as e:
@@ -848,7 +894,9 @@ class DatabaseLoader:
                     for match_id, match_df in df.groupby("match_id", sort=False):
                         match_key = match_key_map.get(match_id)
                         if not match_key:
-                            logger.warning(f"Skipping deliveries for {match_id}: missing match key")
+                            logger.warning(
+                                f"Skipping deliveries for {match_id}: missing match key"
+                            )
                             failed_match_ids.add(match_id)
                             continue
 
@@ -862,7 +910,9 @@ class DatabaseLoader:
                             batsman_key = resolve_player_key(row["batsman"])
                             non_striker_key = resolve_player_key(row["non_striker"])
                             bowler_key = resolve_player_key(row["bowler"])
-                            dismissed_key = resolve_player_key(row.get("dismissed_player"))
+                            dismissed_key = resolve_player_key(
+                                row.get("dismissed_player")
+                            )
                             fielder1_key = resolve_player_key(row.get("fielder1"))
                             fielder2_key = resolve_player_key(row.get("fielder2"))
 
@@ -947,13 +997,17 @@ class DatabaseLoader:
                             )
 
                     logger.info(f"Loaded {rows_loaded} delivery records")
-                    return FactLoadReport(rows_loaded, successful_match_ids, failed_match_ids)
+                    return FactLoadReport(
+                        rows_loaded, successful_match_ids, failed_match_ids
+                    )
 
                 for match_id, match_df in df.groupby("match_id", sort=False):
                     try:
                         match_key = match_key_map.get(match_id)
                         if not match_key:
-                            logger.warning(f"Skipping deliveries for {match_id}: missing match key")
+                            logger.warning(
+                                f"Skipping deliveries for {match_id}: missing match key"
+                            )
                             failed_match_ids.add(match_id)
                             continue
 
@@ -973,40 +1027,65 @@ class DatabaseLoader:
                             batsman_key = resolve_player_key(row["batsman"])
                             non_striker_key = resolve_player_key(row["non_striker"])
                             bowler_key = resolve_player_key(row["bowler"])
-                            dismissed_key = resolve_player_key(row.get("dismissed_player"))
+                            dismissed_key = resolve_player_key(
+                                row.get("dismissed_player")
+                            )
                             fielder1_key = resolve_player_key(row.get("fielder1"))
                             fielder2_key = resolve_player_key(row.get("fielder2"))
 
-                            if not all([
-                                match_key,
-                                date_key,
-                                venue_key,
-                                bat_team_key,
-                                bowl_team_key,
-                                batsman_key,
-                                bowler_key,
-                            ]):
+                            if not all(
+                                [
+                                    match_key,
+                                    date_key,
+                                    venue_key,
+                                    bat_team_key,
+                                    bowl_team_key,
+                                    batsman_key,
+                                    bowler_key,
+                                ]
+                            ):
                                 skipped_rows += 1
                                 continue
 
                             if non_striker_key is None:
                                 non_striker_key = batsman_key
 
-                            values_list.append((
-                                match_key, date_key, venue_key,
-                                bat_team_key, bowl_team_key,
-                                batsman_key, non_striker_key, bowler_key,
-                                row["innings_number"], row["over_number"], row["ball_number"],
-                                row["legal_ball_number"],
-                                row["runs_batsman"], row["runs_extras"], row["runs_total"],
-                                row["is_boundary_four"], row["is_boundary_six"], row["is_dot_ball"],
-                                row.get("extras_type"), row.get("extras_runs", 0),
-                                row["is_wicket"], row.get("dismissal_type"),
-                                dismissed_key, fielder1_key, fielder2_key,
-                                row["is_wide"], row["is_noball"], row["is_legal_delivery"],
-                                row["is_super_over"], row["is_powerplay"],
-                                row["cumulative_runs"], row["cumulative_wickets"],
-                            ))
+                            values_list.append(
+                                (
+                                    match_key,
+                                    date_key,
+                                    venue_key,
+                                    bat_team_key,
+                                    bowl_team_key,
+                                    batsman_key,
+                                    non_striker_key,
+                                    bowler_key,
+                                    row["innings_number"],
+                                    row["over_number"],
+                                    row["ball_number"],
+                                    row["legal_ball_number"],
+                                    row["runs_batsman"],
+                                    row["runs_extras"],
+                                    row["runs_total"],
+                                    row["is_boundary_four"],
+                                    row["is_boundary_six"],
+                                    row["is_dot_ball"],
+                                    row.get("extras_type"),
+                                    row.get("extras_runs", 0),
+                                    row["is_wicket"],
+                                    row.get("dismissal_type"),
+                                    dismissed_key,
+                                    fielder1_key,
+                                    fielder2_key,
+                                    row["is_wide"],
+                                    row["is_noball"],
+                                    row["is_legal_delivery"],
+                                    row["is_super_over"],
+                                    row["is_powerplay"],
+                                    row["cumulative_runs"],
+                                    row["cumulative_wickets"],
+                                )
+                            )
 
                         if not values_list:
                             conn.rollback()
@@ -1053,7 +1132,9 @@ class DatabaseLoader:
                     except Exception as match_error:
                         conn.rollback()
                         failed_match_ids.add(match_id)
-                        logger.error(f"Failed to load deliveries for {match_id}: {match_error}")
+                        logger.error(
+                            f"Failed to load deliveries for {match_id}: {match_error}"
+                        )
 
             logger.info(f"Loaded {rows_loaded} delivery records")
         except Exception as e:
@@ -1118,7 +1199,14 @@ class DatabaseLoader:
                             rows_loaded = %s, error_message = %s
                         WHERE run_id = %s
                         """,
-                        (status, files_processed, files_skipped, rows_loaded, error_message, run_id),
+                        (
+                            status,
+                            files_processed,
+                            files_skipped,
+                            rows_loaded,
+                            error_message,
+                            run_id,
+                        ),
                     )
                 conn.commit()
                 return

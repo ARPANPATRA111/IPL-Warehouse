@@ -9,6 +9,7 @@ from config.settings import get_settings
 
 logger = get_logger("data_quality")
 
+
 @dataclass
 class DQCheckResult:
 
@@ -18,6 +19,7 @@ class DQCheckResult:
     records_failed: int
     failure_percentage: float
     details: Optional[str] = None
+
 
 @dataclass
 class DQReport:
@@ -40,9 +42,11 @@ class DQReport:
             self.failures += 1
             self.overall_status = "fail"
 
+
 def get_connection() -> PgConnection:
     settings = get_settings()
     return psycopg2.connect(settings.database_url)
+
 
 def log_dq_result(conn: PgConnection, run_id: int, result: DQCheckResult) -> None:
     try:
@@ -69,6 +73,7 @@ def log_dq_result(conn: PgConnection, run_id: int, result: DQCheckResult) -> Non
         conn.rollback()
         logger.error(f"Failed to log DQ result for '{result.check_name}': {e}")
 
+
 def check_null_match_keys(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM fact_deliveries WHERE match_key IS NULL")
@@ -86,6 +91,7 @@ def check_null_match_keys(conn: PgConnection) -> DQCheckResult:
         failure_percentage=pct,
         details=f"{failed} deliveries have NULL match_key",
     )
+
 
 def check_orphan_deliveries(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
@@ -109,6 +115,7 @@ def check_orphan_deliveries(conn: PgConnection) -> DQCheckResult:
         details=f"{failed} deliveries without matching dim_match record",
     )
 
+
 def check_runs_range(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("""
@@ -129,6 +136,7 @@ def check_runs_range(conn: PgConnection) -> DQCheckResult:
         failure_percentage=pct,
         details=f"{failed} deliveries with runs_batsman outside [0,7]",
     )
+
 
 def check_overs_per_innings(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
@@ -158,6 +166,7 @@ def check_overs_per_innings(conn: PgConnection) -> DQCheckResult:
         details=f"{failed} innings exceed 120 legal balls",
     )
 
+
 def check_wickets_per_innings(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("""
@@ -186,6 +195,7 @@ def check_wickets_per_innings(conn: PgConnection) -> DQCheckResult:
         details=f"{failed} innings exceed 10 wickets",
     )
 
+
 def check_match_summary_completeness(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("""
@@ -207,6 +217,7 @@ def check_match_summary_completeness(conn: PgConnection) -> DQCheckResult:
         failure_percentage=pct,
         details=f"{failed} matches without summary record",
     )
+
 
 def check_duplicate_deliveries(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
@@ -234,6 +245,7 @@ def check_duplicate_deliveries(conn: PgConnection) -> DQCheckResult:
         details=f"{failed} duplicate delivery groups",
     )
 
+
 def check_team_consistency(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("""
@@ -254,6 +266,7 @@ def check_team_consistency(conn: PgConnection) -> DQCheckResult:
         failure_percentage=pct,
         details=f"{failed} team keys not in dim_team",
     )
+
 
 def check_player_consistency(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
@@ -276,6 +289,7 @@ def check_player_consistency(conn: PgConnection) -> DQCheckResult:
         details=f"{failed} batsman_key values not in dim_player",
     )
 
+
 def check_score_consistency(conn: PgConnection) -> DQCheckResult:
     with conn.cursor() as cur:
         cur.execute("""
@@ -295,7 +309,9 @@ def check_score_consistency(conn: PgConnection) -> DQCheckResult:
             ) mismatches
         """)
         failed = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM fact_match_summary WHERE team1_score IS NOT NULL")
+        cur.execute(
+            "SELECT COUNT(*) FROM fact_match_summary WHERE team1_score IS NOT NULL"
+        )
         total = cur.fetchone()[0]
 
     pct = (failed / total * 100) if total > 0 else 0
@@ -308,6 +324,7 @@ def check_score_consistency(conn: PgConnection) -> DQCheckResult:
         failure_percentage=pct,
         details=f"{failed} matches with score mismatch between summary and deliveries",
     )
+
 
 def run_data_quality_checks(run_id: Optional[int] = None) -> DQReport:
     logger.info("Starting data quality checks")

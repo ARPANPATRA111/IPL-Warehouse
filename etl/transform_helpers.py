@@ -1,8 +1,6 @@
 from datetime import date, datetime
 from typing import Optional
 
-import pandas as pd
-
 from config.logging_config import get_logger
 
 logger = get_logger("transform_helpers")
@@ -66,23 +64,36 @@ FRANCHISE_GROUPS: dict[str, str] = {
     "Gujarat Lions": "Gujarat Lions",
 }
 
+
 def normalize_team_name(team_name: str) -> str:
     return TEAM_NAME_MAPPING.get(team_name, team_name)
 
+
 def get_team_short_name(team_name: str) -> Optional[str]:
-    return TEAM_SHORT_NAMES.get(team_name)
+    if team_name in TEAM_SHORT_NAMES:
+        return TEAM_SHORT_NAMES[team_name]
+
+    initials = "".join(
+        part[0] for part in team_name.split() if part and part[0].isalnum()
+    ).upper()
+    return initials or team_name[:3].upper()
+
 
 def get_franchise_group(team_name: str) -> Optional[str]:
     return FRANCHISE_GROUPS.get(team_name)
 
+
 def parse_season(season_value: object) -> str:
-    season_str = str(season_value)
-    if "/" in season_str:
-        return season_str.split("/")[0]
-    return season_str
+    if season_value is None:
+        return ""
+    return str(season_value)
+
 
 def parse_match_date(dates: list[str]) -> date:
+    if not dates:
+        return date.min
     return datetime.strptime(dates[0], "%Y-%m-%d").date()
+
 
 def generate_date_attributes(match_date: date, season: str) -> dict:
     return {
@@ -101,7 +112,10 @@ def generate_date_attributes(match_date: date, season: str) -> dict:
         "phase_of_tournament": "League",
     }
 
-def determine_phase(match_number: Optional[int], total_matches_in_season: int = 74) -> str:
+
+def determine_phase(
+    match_number: Optional[int], total_matches_in_season: int = 74
+) -> str:
     if match_number is None:
         return "League"
     if match_number >= total_matches_in_season:
@@ -110,12 +124,16 @@ def determine_phase(match_number: Optional[int], total_matches_in_season: int = 
         return "Playoff"
     return "League"
 
+
 def compute_overs_decimal(legal_balls: int) -> float:
     complete_overs = legal_balls // 6
     remaining_balls = legal_balls % 6
     return float(f"{complete_overs}.{remaining_balls}")
 
-def extract_win_info(outcome: dict) -> tuple[Optional[str], Optional[str], Optional[int], bool, str]:
+
+def extract_win_info(
+    outcome: dict,
+) -> tuple[Optional[str], Optional[str], Optional[int], bool, str]:
     winner = outcome.get("winner")
     is_dls = "method" in outcome
     result = "normal"
