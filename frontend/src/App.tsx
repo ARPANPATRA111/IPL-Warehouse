@@ -249,6 +249,10 @@ function writeLocalCache<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function isNotFoundError(message: string | null) {
+  return Boolean(message && /not found/i.test(message));
+}
+
 function useApi<T>(path: string | null): ApiState<T> {
   const [state, setState] = useState<ApiState<T>>({
     data: null,
@@ -1060,13 +1064,17 @@ function MultiChipFilter(props: {
 function OverviewView() {
   const isCompactLayout = useViewportQuery("(max-width: 720px)");
   const summaryState = useApi<HomeSummaryData>(buildApiPath("/api/home/summary"));
+  const shouldUseLegacyHome = isNotFoundError(summaryState.error) && !summaryState.data;
+  const legacyHomeState = useApi<HomeData>(
+    shouldUseLegacyHome ? buildApiPath("/api/home") : null,
+  );
   const [loadLeaders, setLoadLeaders] = useState(false);
   const leadersState = useApi<HomeLeadersData>(
-    loadLeaders ? buildApiPath("/api/home/leaders") : null,
+    loadLeaders && !shouldUseLegacyHome ? buildApiPath("/api/home/leaders") : null,
   );
 
   useEffect(() => {
-    if (!summaryState.data) {
+    if (!summaryState.data || shouldUseLegacyHome) {
       setLoadLeaders(false);
       return;
     }
@@ -1078,9 +1086,22 @@ function OverviewView() {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [summaryState.data]);
+  }, [shouldUseLegacyHome, summaryState.data]);
 
-  if (summaryState.loading) {
+  const overviewLoading = summaryState.loading || (
+    shouldUseLegacyHome && (legacyHomeState.loading || (!legacyHomeState.data && !legacyHomeState.error))
+  );
+  const overviewError = shouldUseLegacyHome ? legacyHomeState.error : summaryState.error;
+  const summaryData = shouldUseLegacyHome
+    ? legacyHomeState.data
+      ? {
+          metrics: legacyHomeState.data.metrics,
+          season_summary: legacyHomeState.data.season_summary,
+        }
+      : null
+    : summaryState.data;
+
+  if (overviewLoading) {
     return (
       <LoadingState
         variant="overview"
@@ -1090,18 +1111,20 @@ function OverviewView() {
       />
     );
   }
-  if (summaryState.error) {
-    return <ErrorState message={summaryState.error} />;
+  if (overviewError) {
+    return <ErrorState message={overviewError} />;
   }
-  if (!summaryState.data) {
+  if (!summaryData) {
     return <EmptyState message="Overview data is unavailable." />;
   }
 
-  const data: HomeData = {
-    ...summaryState.data,
-    top_batsmen: leadersState.data?.top_batsmen || [],
-    top_bowlers: leadersState.data?.top_bowlers || [],
-  };
+  const data: HomeData = shouldUseLegacyHome && legacyHomeState.data
+    ? legacyHomeState.data
+    : {
+        ...summaryData,
+        top_batsmen: leadersState.data?.top_batsmen || [],
+        top_bowlers: leadersState.data?.top_bowlers || [],
+      };
 
   const metricEntries = [
     ["Matches", data.metrics.total_matches],
@@ -1290,8 +1313,8 @@ function OverviewView() {
         </>
       )}
 
-      {leadersState.error ? <ErrorState message={leadersState.error} /> : null}
-      {leadersState.loading && !data.top_batsmen.length && !data.top_bowlers.length ? <LeaderboardPanelsSkeleton /> : null}
+      {!shouldUseLegacyHome && leadersState.error ? <ErrorState message={leadersState.error} /> : null}
+      {!shouldUseLegacyHome && leadersState.loading && !data.top_batsmen.length && !data.top_bowlers.length ? <LeaderboardPanelsSkeleton /> : null}
       {data.top_batsmen.length || data.top_bowlers.length ? (
         <div className="panel-grid panel-grid-2">
           <Panel title="Top run engines" subtitle="The biggest run makers in the warehouse right now.">
