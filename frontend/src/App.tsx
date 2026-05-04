@@ -44,12 +44,17 @@ type ReferenceOptions = {
   venues: string[];
 };
 
-type HomeData = {
+type HomeSummaryData = {
   metrics: Record<string, number>;
   season_summary: TableRow[];
+};
+
+type HomeLeadersData = {
   top_batsmen: TableRow[];
   top_bowlers: TableRow[];
 };
+
+type HomeData = HomeSummaryData & HomeLeadersData;
 
 type QueryEngineContext = {
   schema_summary: string;
@@ -166,8 +171,8 @@ function buildApiPath(path: string, params?: Record<string, string | string[] | 
   return API_BASE_URL ? `${API_BASE_URL}${relative}` : relative;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { signal });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Request failed with ${response.status}`);
@@ -258,6 +263,7 @@ function useApi<T>(path: string | null): ApiState<T> {
     }
 
     let active = true;
+  const controller = new AbortController();
     const cachedData = readSessionCache<T>(path);
 
     if (cachedData) {
@@ -266,7 +272,7 @@ function useApi<T>(path: string | null): ApiState<T> {
       setState((current) => ({ ...current, loading: true, error: null }));
     }
 
-    fetchJson<T>(path)
+    fetchJson<T>(path, controller.signal)
       .then((data) => {
         if (!active) {
           return;
@@ -275,6 +281,9 @@ function useApi<T>(path: string | null): ApiState<T> {
         setState({ data, loading: false, error: null });
       })
       .catch((error: Error) => {
+        if (error.name === "AbortError") {
+          return;
+        }
         if (!active) {
           return;
         }
@@ -287,6 +296,7 @@ function useApi<T>(path: string | null): ApiState<T> {
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [path]);
 
@@ -332,6 +342,47 @@ function useViewportQuery(query: string) {
   }, [query]);
 
   return matches;
+}
+
+function useEstimatedProgress(active: boolean) {
+  const [progress, setProgress] = useState(active ? 14 : 100);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      return;
+    }
+
+    setProgress((current) => (current > 0 && current < 100 ? current : 14));
+
+    const intervalId = window.setInterval(() => {
+      setProgress((current) => {
+        if (current >= 94) {
+          return 94;
+        }
+
+        if (current < 42) {
+          return current + 8;
+        }
+
+        if (current < 72) {
+          return current + 5;
+        }
+
+        if (current < 86) {
+          return current + 3;
+        }
+
+        return current + 1;
+      });
+    }, 180);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [active]);
+
+  return Math.min(progress, 100);
 }
 
 function toggleInList(items: string[], value: string) {
@@ -497,10 +548,122 @@ function Panel(props: {
   );
 }
 
-function LoadingState() {
+function SkeletonBlock(props: { className?: string }) {
+  return <span aria-hidden="true" className={`skeleton-block ${props.className || ""}`.trim()} />;
+}
+
+function OverviewSkeleton() {
   return (
-    <div className="status-card" role="status" aria-live="polite">
-      Loading dashboard data…
+    <div className="view-stack loading-view-stack" aria-hidden="true">
+      <div className="section-header loading-section-header">
+        <SkeletonBlock className="skeleton-eyebrow" />
+        <SkeletonBlock className="skeleton-heading" />
+        <SkeletonBlock className="skeleton-copy" />
+      </div>
+
+      <div className="metric-grid loading-metric-grid">
+        {Array.from({ length: 8 }, (_, index) => (
+          <article className="metric-card loading-metric-card" key={`metric-skeleton-${index}`}>
+            <SkeletonBlock className="skeleton-label" />
+            <SkeletonBlock className="skeleton-value" />
+          </article>
+        ))}
+      </div>
+
+      <div className="panel-grid panel-grid-2 loading-panel-grid">
+        {Array.from({ length: 2 }, (_, index) => (
+          <section className="panel loading-panel" key={`overview-panel-skeleton-${index}`}>
+            <div className="panel-head loading-panel-head">
+              <div>
+                <SkeletonBlock className="skeleton-panel-title" />
+                <SkeletonBlock className="skeleton-panel-copy" />
+              </div>
+            </div>
+            <SkeletonBlock className="skeleton-chart" />
+            <div className="loading-table-preview">
+              {Array.from({ length: 4 }, (_, rowIndex) => (
+                <SkeletonBlock className="skeleton-table-row" key={`overview-table-row-${index}-${rowIndex}`} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GenericSkeleton() {
+  return (
+    <div className="panel-grid panel-grid-2 loading-panel-grid" aria-hidden="true">
+      {Array.from({ length: 2 }, (_, index) => (
+        <section className="panel loading-panel" key={`generic-panel-skeleton-${index}`}>
+          <div className="panel-head loading-panel-head">
+            <div>
+              <SkeletonBlock className="skeleton-panel-title" />
+              <SkeletonBlock className="skeleton-panel-copy" />
+            </div>
+          </div>
+          <SkeletonBlock className="skeleton-chart" />
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function LeaderboardPanelsSkeleton() {
+  return (
+    <div className="panel-grid panel-grid-2 loading-panel-grid" aria-hidden="true">
+      {Array.from({ length: 2 }, (_, index) => (
+        <section className="panel loading-panel" key={`leaderboard-panel-skeleton-${index}`}>
+          <div className="panel-head loading-panel-head">
+            <div>
+              <SkeletonBlock className="skeleton-panel-title" />
+              <SkeletonBlock className="skeleton-panel-copy" />
+            </div>
+          </div>
+          <SkeletonBlock className="skeleton-chart skeleton-chart-short" />
+          <div className="loading-table-preview">
+            {Array.from({ length: 5 }, (_, rowIndex) => (
+              <SkeletonBlock className="skeleton-table-row" key={`leaderboard-table-row-${index}-${rowIndex}`} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function LoadingState(props: {
+  label?: string;
+  detail?: string;
+  progressLabel?: string;
+  variant?: "generic" | "boot" | "overview";
+  showPercent?: boolean;
+}) {
+  const progress = useEstimatedProgress(true);
+  const variant = props.variant || "generic";
+  const label = props.label || "Loading dashboard data";
+  const detail = props.detail || "Fetching the active warehouse slice and preparing lightweight visual components.";
+  const progressLabel = props.progressLabel || "Warehouse readiness";
+  const showPercent = props.showPercent ?? variant !== "generic";
+
+  return (
+    <div className={`loading-shell loading-shell-${variant}`.trim()} role="status" aria-live="polite">
+      <section className="status-card loading-card">
+        <div className="loading-copy-row">
+          <div>
+            <span className="eyebrow">{progressLabel}</span>
+            <strong className="loading-title">{label}</strong>
+          </div>
+          {showPercent ? <span className="loading-percent">{Math.round(progress)}%</span> : null}
+        </div>
+        <div aria-hidden="true" className="loading-bar-track">
+          <span className="loading-bar-fill" style={{ width: `${progress}%` }} />
+        </div>
+        <p className="loading-detail">{detail}</p>
+      </section>
+
+      {variant === "overview" ? <OverviewSkeleton /> : <GenericSkeleton />}
     </div>
   );
 }
@@ -896,17 +1059,49 @@ function MultiChipFilter(props: {
 
 function OverviewView() {
   const isCompactLayout = useViewportQuery("(max-width: 720px)");
-  const { data, loading, error } = useApi<HomeData>(buildApiPath("/api/home"));
+  const summaryState = useApi<HomeSummaryData>(buildApiPath("/api/home/summary"));
+  const [loadLeaders, setLoadLeaders] = useState(false);
+  const leadersState = useApi<HomeLeadersData>(
+    loadLeaders ? buildApiPath("/api/home/leaders") : null,
+  );
 
-  if (loading) {
-    return <LoadingState />;
+  useEffect(() => {
+    if (!summaryState.data) {
+      setLoadLeaders(false);
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setLoadLeaders(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [summaryState.data]);
+
+  if (summaryState.loading) {
+    return (
+      <LoadingState
+        variant="overview"
+        label="Loading IPL pulse board"
+        detail="Pulling season trends, metric totals, and top performers while charts stay lightweight on first paint."
+        progressLabel="Overview load"
+      />
+    );
   }
-  if (error) {
-    return <ErrorState message={error} />;
+  if (summaryState.error) {
+    return <ErrorState message={summaryState.error} />;
   }
-  if (!data) {
+  if (!summaryState.data) {
     return <EmptyState message="Overview data is unavailable." />;
   }
+
+  const data: HomeData = {
+    ...summaryState.data,
+    top_batsmen: leadersState.data?.top_batsmen || [],
+    top_bowlers: leadersState.data?.top_bowlers || [],
+  };
 
   const metricEntries = [
     ["Matches", data.metrics.total_matches],
@@ -1095,51 +1290,55 @@ function OverviewView() {
         </>
       )}
 
-      <div className="panel-grid panel-grid-2">
-        <Panel title="Top run engines" subtitle="The biggest run makers in the warehouse right now.">
-          <div className="chart-box chart-box-short">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.top_batsmen.slice(0, 8)} layout="vertical">
-                <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
-                <XAxis type="number" stroke="#9aa8c7" />
-                <YAxis
-                  type="category"
-                  dataKey="player_name"
-                  width={isCompactLayout ? 96 : 150}
-                  interval={0}
-                  stroke="#9aa8c7"
-                  tickFormatter={(value) => (isCompactLayout ? truncateChartLabel(value, 11) : truncateChartLabel(value, 18))}
-                />
-                <Tooltip />
-                <Bar dataKey="total_runs" fill="#f97316" radius={[0, 8, 8, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <DataTable rows={data.top_batsmen} />
-        </Panel>
+      {leadersState.error ? <ErrorState message={leadersState.error} /> : null}
+      {leadersState.loading && !data.top_batsmen.length && !data.top_bowlers.length ? <LeaderboardPanelsSkeleton /> : null}
+      {data.top_batsmen.length || data.top_bowlers.length ? (
+        <div className="panel-grid panel-grid-2">
+          <Panel title="Top run engines" subtitle="The biggest run makers in the warehouse right now.">
+            <div className="chart-box chart-box-short">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.top_batsmen.slice(0, 8)} layout="vertical">
+                  <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
+                  <XAxis type="number" stroke="#9aa8c7" />
+                  <YAxis
+                    type="category"
+                    dataKey="player_name"
+                    width={isCompactLayout ? 96 : 150}
+                    interval={0}
+                    stroke="#9aa8c7"
+                    tickFormatter={(value) => (isCompactLayout ? truncateChartLabel(value, 11) : truncateChartLabel(value, 18))}
+                  />
+                  <Tooltip />
+                  <Bar dataKey="total_runs" fill="#f97316" radius={[0, 8, 8, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <DataTable rows={data.top_batsmen} />
+          </Panel>
 
-        <Panel title="Top wicket brokers" subtitle="The wicket leaders with economy context beside them.">
-          <div className="chart-box chart-box-short">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.top_bowlers.slice(0, 8)} layout="vertical">
-                <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
-                <XAxis type="number" stroke="#9aa8c7" />
-                <YAxis
-                  type="category"
-                  dataKey="player_name"
-                  width={isCompactLayout ? 96 : 150}
-                  interval={0}
-                  stroke="#9aa8c7"
-                  tickFormatter={(value) => (isCompactLayout ? truncateChartLabel(value, 11) : truncateChartLabel(value, 18))}
-                />
-                <Tooltip />
-                <Bar dataKey="wickets" fill="#38bdf8" radius={[0, 8, 8, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <DataTable rows={data.top_bowlers} />
-        </Panel>
-      </div>
+          <Panel title="Top wicket brokers" subtitle="The wicket leaders with economy context beside them.">
+            <div className="chart-box chart-box-short">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.top_bowlers.slice(0, 8)} layout="vertical">
+                  <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
+                  <XAxis type="number" stroke="#9aa8c7" />
+                  <YAxis
+                    type="category"
+                    dataKey="player_name"
+                    width={isCompactLayout ? 96 : 150}
+                    interval={0}
+                    stroke="#9aa8c7"
+                    tickFormatter={(value) => (isCompactLayout ? truncateChartLabel(value, 11) : truncateChartLabel(value, 18))}
+                  />
+                  <Tooltip />
+                  <Bar dataKey="wickets" fill="#38bdf8" radius={[0, 8, 8, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <DataTable rows={data.top_bowlers} />
+          </Panel>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1797,6 +1996,7 @@ function InsightsLabView() {
   const [successfulPrompts, setSuccessfulPrompts] = useState<string[]>(() => readLocalCache<string[]>(QUERY_SUCCESS_KEY, []));
   const [favoritePrompts, setFavoritePrompts] = useState<string[]>(() => readLocalCache<string[]>(QUERY_FAVORITES_KEY, []));
   const [promptFeedback, setPromptFeedback] = useState("Tap a prompt to preload it into the question box.");
+  const [hasPerformedQuery, setHasPerformedQuery] = useState(false);
   const [queryState, setQueryState] = useState<ApiState<QueryEngineResult>>({
     data: null,
     loading: false,
@@ -1839,6 +2039,7 @@ function InsightsLabView() {
       return;
     }
 
+    setHasPerformedQuery(true);
     setRecentPrompts((current) => rememberPrompt(current, trimmedQuestion));
     setSubmittedQuestion(trimmedQuestion);
     setPromptFeedback("Query submitted. Results will appear below when the warehouse responds.");
@@ -1863,6 +2064,7 @@ function InsightsLabView() {
 
   const trimmedQuestion = question.trim();
   const isFavoritePrompt = trimmedQuestion ? favoritePrompts.includes(trimmedQuestion) : false;
+  const visibleRecentPrompts = recentPrompts.slice(0, 3);
 
   return (
     <div className="view-stack">
@@ -1916,9 +2118,13 @@ function InsightsLabView() {
         {contextState.data ? (
           <div className="prompt-memory-grid">
             <PromptChipSection title="Starter prompts" items={contextState.data.examples} activeValue={question} onSelect={handlePromptSelection} />
-            <PromptChipSection title="Favorites" items={favoritePrompts} activeValue={question} onSelect={handlePromptSelection} />
-            <PromptChipSection title="Successful" items={successfulPrompts} activeValue={question} onSelect={handlePromptSelection} />
-            <PromptChipSection title="Recent" items={recentPrompts} activeValue={question} onSelect={handlePromptSelection} />
+            {hasPerformedQuery ? (
+              <PromptChipSection title="Saved prompts" items={favoritePrompts} activeValue={question} onSelect={handlePromptSelection} />
+            ) : null}
+            {hasPerformedQuery ? (
+              <PromptChipSection title="Successful" items={successfulPrompts} activeValue={question} onSelect={handlePromptSelection} />
+            ) : null}
+            <PromptChipSection title="Recent" items={visibleRecentPrompts} activeValue={question} onSelect={handlePromptSelection} />
           </div>
         ) : null}
       </Panel>
@@ -2084,7 +2290,14 @@ export default function App() {
           </p>
         </header>
 
-        {optionsState.loading ? <LoadingState /> : null}
+        {optionsState.loading ? (
+          <LoadingState
+            variant="boot"
+            label="Preparing the warehouse shell"
+            detail="Loading filters, warming the first screen, and staging visible components before deeper analytics hydrate."
+            progressLabel="App boot"
+          />
+        ) : null}
         {optionsState.error ? <ErrorState message={optionsState.error} /> : null}
         {optionsState.data ? (
           <>

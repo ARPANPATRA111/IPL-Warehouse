@@ -19,7 +19,7 @@ on:
           - WARNING
           - ERROR
   schedule:
-    - cron: "0 3 * * 1"
+    - cron: "0 3 * * *"
 
 concurrency:
   group: warehouse-refresh
@@ -63,7 +63,95 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+        - name: Determine refresh cadence
+        id: cadence
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+          from sqlalchemy import create_engine, text
+
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+          if event_name == "workflow_dispatch":
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("should_run_etl=true\n")
+              output.write("refresh_cadence=manual\n")
+              output.write("refresh_reason=Manual dispatch always runs the ETL.\n")
+            raise SystemExit(0)
+
+          engine = create_engine(os.environ["DATABASE_URL"])
+          with engine.connect() as connection:
+            rows = connection.execute(
+              text(
+                """
+                SELECT completed_at, COALESCE(files_processed, 0) AS files_processed
+                FROM etl_run_log
+                WHERE status = 'success' AND completed_at IS NOT NULL
+                ORDER BY completed_at DESC
+                LIMIT 90
+                """
+              )
+            ).mappings().all()
+
+          now = datetime.now(timezone.utc)
+          last_success_at = rows[0]["completed_at"] if rows else None
+          last_changed_at = next(
+            (row["completed_at"] for row in rows if (row["files_processed"] or 0) > 0),
+            None,
+          )
+
+          def normalize(value):
+            if value is None:
+              return None
+            if value.tzinfo is None:
+              return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+
+          last_success_at = normalize(last_success_at)
+          last_changed_at = normalize(last_changed_at)
+
+          should_run = True
+          cadence = "bootstrap"
+          reason = "No successful ETL history found; running a refresh check."
+
+          if last_success_at and last_changed_at:
+            days_since_success = (now - last_success_at).days
+            days_since_change = (now - last_changed_at).days
+
+            if days_since_change < 5:
+              cadence = "daily"
+              should_run = True
+              reason = f"Recent source changes were loaded {days_since_change} day(s) ago; staying on daily refresh checks."
+            elif days_since_change < 30:
+              cadence = "every-5-days"
+              should_run = days_since_success >= 5
+              reason = (
+                f"No new files have landed for {days_since_change} day(s); running every 5 days until the feed changes again."
+              )
+            else:
+              cadence = "monthly"
+              should_run = days_since_success >= 30
+              reason = (
+                f"No new files have landed for {days_since_change} day(s); switching to monthly season-start checks."
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"should_run_etl={'true' if should_run else 'false'}\n")
+            output.write(f"refresh_cadence={cadence}\n")
+            output.write(f"refresh_reason={reason}\n")
+          PY
+
+        - name: Report skipped refresh
+        if: steps.cadence.outputs.should_run_etl != 'true'
+        run: |
+          echo "Skipping warehouse refresh."
+          echo "Cadence: ${{ steps.cadence.outputs.refresh_cadence }}"
+          echo "Reason: ${{ steps.cadence.outputs.refresh_reason }}"
+
       - name: Run incremental ETL
+        if: steps.cadence.outputs.should_run_etl == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -74,6 +162,7 @@ jobs:
           python -m etl.pipeline${extra_args}
 
       - name: Verify core warehouse tables
+        if: steps.cadence.outputs.should_run_etl == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |

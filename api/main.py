@@ -15,6 +15,8 @@ from api.queries import (
     get_bowling_player_profile,
     get_head_to_head,
     get_home_dashboard,
+    get_home_leaders,
+    get_home_summary,
     get_players,
     get_reference_options,
     get_team_detail,
@@ -174,6 +176,14 @@ def players(search: str = "") -> dict[str, list[str]]:
 @app.get("/api/home")
 def home_dashboard() -> dict:
     return get_home_dashboard()
+
+@app.get("/api/home/summary")
+def home_dashboard_summary() -> dict:
+    return get_home_summary()
+
+@app.get("/api/home/leaders")
+def home_dashboard_leaders() -> dict:
+    return get_home_leaders()
 
 @app.get("/api/batting")
 def batting_dashboard(seasons: list[str] = Query(default=[])) -> dict:

@@ -100,26 +100,37 @@ def get_players(search: str = "") -> list[str]:
     return df["player_name"].tolist() if not df.empty else []
 
 @ttl_cache(max_entries=8)
-def get_home_dashboard() -> dict[str, Any]:
+def get_home_summary() -> dict[str, Any]:
+    dimension_rows = run_records(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM dim_match) as total_matches,
+            (SELECT COUNT(*) FROM dim_player) as total_players,
+            (SELECT COUNT(*) FROM dim_team WHERE is_active = TRUE) as total_teams
+        """
+    )
+    fact_rows = run_records(
+        """
+        SELECT
+            COUNT(*) as total_deliveries,
+            COALESCE(SUM(runs_total), 0) as total_runs,
+            COUNT(*) FILTER (WHERE is_wicket = TRUE) as total_wickets,
+            COUNT(*) FILTER (WHERE is_boundary_six = TRUE) as total_sixes,
+            COUNT(*) FILTER (WHERE is_boundary_four = TRUE) as total_fours
+        FROM fact_deliveries
+        """
+    )
+    dimension_metrics = dimension_rows[0] if dimension_rows else {}
+    fact_metrics = fact_rows[0] if fact_rows else {}
     metrics = {
-        "total_matches": int(run_scalar("SELECT COUNT(*) FROM dim_match", default=0) or 0),
-        "total_players": int(run_scalar("SELECT COUNT(*) FROM dim_player", default=0) or 0),
-        "total_teams": int(
-            run_scalar("SELECT COUNT(*) FROM dim_team WHERE is_active = TRUE", default=0) or 0
-        ),
-        "total_deliveries": int(run_scalar("SELECT COUNT(*) FROM fact_deliveries", default=0) or 0),
-        "total_runs": int(
-            run_scalar("SELECT COALESCE(SUM(runs_total), 0) FROM fact_deliveries", default=0) or 0
-        ),
-        "total_wickets": int(
-            run_scalar("SELECT COUNT(*) FROM fact_deliveries WHERE is_wicket = TRUE", default=0) or 0
-        ),
-        "total_sixes": int(
-            run_scalar("SELECT COUNT(*) FROM fact_deliveries WHERE is_boundary_six = TRUE", default=0) or 0
-        ),
-        "total_fours": int(
-            run_scalar("SELECT COUNT(*) FROM fact_deliveries WHERE is_boundary_four = TRUE", default=0) or 0
-        ),
+        "total_matches": int(dimension_metrics.get("total_matches") or 0),
+        "total_players": int(dimension_metrics.get("total_players") or 0),
+        "total_teams": int(dimension_metrics.get("total_teams") or 0),
+        "total_deliveries": int(fact_metrics.get("total_deliveries") or 0),
+        "total_runs": int(fact_metrics.get("total_runs") or 0),
+        "total_wickets": int(fact_metrics.get("total_wickets") or 0),
+        "total_sixes": int(fact_metrics.get("total_sixes") or 0),
+        "total_fours": int(fact_metrics.get("total_fours") or 0),
     }
 
     season_summary = run_records(
@@ -138,6 +149,13 @@ def get_home_dashboard() -> dict[str, Any]:
         """
     )
 
+    return {
+        "metrics": metrics,
+        "season_summary": season_summary,
+    }
+
+@ttl_cache(max_entries=8)
+def get_home_leaders() -> dict[str, Any]:
     top_batsmen = run_records(
         """
         SELECT dp.player_name,
@@ -191,10 +209,15 @@ def get_home_dashboard() -> dict[str, Any]:
     )
 
     return {
-        "metrics": metrics,
-        "season_summary": season_summary,
         "top_batsmen": top_batsmen,
         "top_bowlers": top_bowlers,
+    }
+
+@ttl_cache(max_entries=8)
+def get_home_dashboard() -> dict[str, Any]:
+    return {
+        **get_home_summary(),
+        **get_home_leaders(),
     }
 
 @ttl_cache(max_entries=64)
@@ -536,8 +559,11 @@ def warm_analytics_cache() -> dict[str, str]:
     get_reference_options()
     warmed["reference_options"] = "ok"
 
-    get_home_dashboard()
-    warmed["home_dashboard"] = "ok"
+    get_home_summary()
+    warmed["home_summary"] = "ok"
+
+    get_home_leaders()
+    warmed["home_leaders"] = "ok"
 
     get_batting_dashboard([])
     warmed["batting_dashboard"] = "ok"
