@@ -1,58 +1,163 @@
-# IPL Cricket Data Warehouse
+# IPL Warehouse
 
-A complete Cricket Analytics Data Warehouse system featuring an incremental ETL pipeline, star schema design, data quality checks, a FastAPI analytics backend, and a modern React frontend.
+An IPL-focused dimensional analytics platform built on a PostgreSQL warehouse, a Python ETL pipeline, a FastAPI analytics layer, and a React frontend designed for OLAP-style exploration.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-teal)
 ![React](https://img.shields.io/badge/React-18-61dafb)
-![License](https://img.shields.io/badge/License-MIT-green)
+![Vite](https://img.shields.io/badge/Vite-5-8b5cf6)
+![Tests](https://img.shields.io/badge/Tests-Pytest-success)
 
----
+## Why This Project Exists
 
-## Documentation
+Most cricket dashboards stop at charts. This project treats IPL analytics as a warehouse problem first and a UI problem second.
 
-- `guide.md` contains the exact commands to run, test, and troubleshoot the project.
-- `docs/project_documentation.md` explains the project scope, architecture, runtime modes, and future enhancement roadmap.
-- `docs/project_report.md` is the presentation-ready report and jury talk track.
-- `docs/architecture.md` describes the current system design.
-- `docs/future_enhancements.md` lists the next product, analytics, AI, deployment, and quality upgrades grounded in the current implementation.
+- Facts are modeled at delivery grain and match grain.
+- Dimensions provide reusable filters for season, player, team, venue, and match context.
+- OLAP operations such as slice, dice, drill-down, and roll-up are reflected in the product, not only in SQL scripts.
+- Natural-language querying is constrained by warehouse grain, safe SQL validation, and presentation-ready answers.
 
----
+## System At a Glance
 
-## Features
+```mermaid
+flowchart LR
+    A[Cricsheet IPL JSON] --> B[Extract]
+    B --> C[Validate]
+    C --> D[Transform]
+    D --> E[Load]
+    E --> F[(PostgreSQL Warehouse)]
+    F --> G[FastAPI Analytics API]
+    G --> H[React + Vite Frontend]
+    F --> I[Query Engine]
+    I --> H
+```
 
-- **Incremental ETL Pipeline**: Checksum-based extraction from Cricsheet, validation, transformation, and loading
-- **Star Schema**: 8 dimension tables + 2 fact tables (~300K delivery records)
-- **Data Quality**: 10 automated checks with pass/warn/fail reporting
-- **Analytics**: 22 SQL queries with OLAP operations (ROLLUP, CUBE, WINDOW functions)
-- **Backend API**: FastAPI service exposing warehouse analytics as JSON endpoints
-- **Frontend**: React + Vite dashboard with seven analytics views, Query Lab, and Recharts visualizations
-- **Docker**: Local database and ETL container workflow
-- **CI/CD**: GitHub Actions pipeline (lint → test → build → deploy)
-- **Cloud Ready**: Supabase (database) + deployable API/frontend split
+## Warehouse Model
 
----
+The warehouse is star-first, with two central fact tables supported by conformed dimensions.
+
+```mermaid
+flowchart LR
+    DD[dim_date]
+    DP[dim_player]
+    DT[dim_team]
+    DV[dim_venue]
+    DM[dim_match]
+    FD[fact_deliveries]
+    FM[fact_match_summary]
+
+    DD --- FD
+    DP --- FD
+    DT --- FD
+    DV --- FD
+    DM --- FD
+
+    DD --- FM
+    DP --- FM
+    DT --- FM
+    DV --- FM
+    DM --- FM
+```
+
+### Core Modeling Ideas
+
+- `fact_deliveries` stores ball-by-ball measures such as runs, wickets, boundaries, powerplay flags, and cumulative state.
+- `fact_match_summary` stores one row per match with winners, margins, toss outcomes, team scores, and player-of-the-match information.
+- `dim_date`, `dim_team`, `dim_player`, `dim_venue`, and `dim_match` act as conformed dimensions across the full analytical surface.
+- Historical teams remain analytically visible as their own members instead of being hidden inside current franchise names.
+
+## OLAP Lens
+
+The main cube in this project is built around season, team, and venue, with drill paths down to match and delivery detail.
+
+```mermaid
+flowchart TD
+    Cube[OLAP cube\nseason x team x venue]
+    Slice[Slice\nseason = 2025]
+    Dice[Dice\nteam x venue]
+    Drill[Drill-down\nseason -> match -> innings -> delivery]
+    Rollup[Roll-up\ndelivery -> match -> season]
+
+    Cube --> Slice
+    Cube --> Dice
+    Cube --> Drill
+    Cube --> Rollup
+```
+
+### Supported OLAP Behaviors
+
+- Slice by season, venue, team, player, or rivalry.
+- Dice across multiple dimensions such as venue by season or team by toss outcome.
+- Drill down from summary KPIs to seasonal views, match results, and delivery-level evidence.
+- Roll up detailed events into innings, match, season, and league-wide metrics.
+
+## End-to-End Flow
+
+```mermaid
+flowchart LR
+    S[Source JSON files] --> E1[Checksum-aware extract]
+    E1 --> E2[Schema and business validation]
+    E2 --> E3[Transform to dimensional records]
+    E3 --> E4[Warehouse load]
+    E4 --> E5[Data quality checks]
+    E5 --> W[(Warehouse tables and views)]
+    W --> API[FastAPI endpoints]
+    API --> UI[Dashboard views]
+```
+
+## Query Engine Flow
+
+The query engine is designed to answer analytical questions without allowing arbitrary write access or schema drift.
+
+```mermaid
+flowchart LR
+    U[User question] --> Q[SQL assistant]
+    Q --> V[Read-only SQL validation]
+    V --> W[(Warehouse)]
+    W --> A[Tabular answer]
+    A --> C[Chart suggestion layer]
+```
+
+### Query Engine Guardrails
+
+- Only approved warehouse tables can be referenced.
+- Generated SQL is normalized for season literals, boolean aggregates, and warehouse player-name formats.
+- Simple warehouse-native questions such as season winners and player-of-the-match leaders use deterministic SQL instead of relying only on model inference.
+- Returned answers are shaped into scalar, text, or table responses for cleaner frontend rendering.
+
+## Product Surface
+
+| View | What It Answers |
+|------|-----------------|
+| Overview | Warehouse KPIs, season trends, top performers, star schema and OLAP primer |
+| Batting | Run leaders, strike-rate pressure, boundary output |
+| Bowling | Wicket leaders, economy, dot-ball control |
+| Teams | Franchise win shape, toss decisions, seasonal performance |
+| Venues | Run-rate environments, chase success, boundary pressure |
+| Head-to-Head | Rivalry balance, seasonal matchup swings, top batters |
+| Query Lab | Natural-language SQL, answer tables, auto-generated visuals |
+
+## Key Features
+
+- Incremental ETL pipeline with warehouse-safe load behavior.
+- Delivery-grain and match-grain facts with conformed dimensions.
+- Data quality checks and ETL logging.
+- React frontend optimized for desktop and mobile analytics reading.
+- Query engine grounded in warehouse grain and safe SQL constraints.
+- CI pipeline covering lint, tests, frontend build, and Docker build.
+- Scheduled warehouse refresh workflow for recurring ETL updates.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
-- PostgreSQL 15+
-- Docker (optional)
+- Node.js 20+
+- PostgreSQL 15+ or Supabase
+- Docker, optional
 
-### Option 1: Docker (Recommended)
-
-```bash
-git clone https://github.com/your-username/ipl-data-warehouse.git
-cd ipl-data-warehouse
-docker compose up -d postgres
-```
-
-Then use the local setup flow below to start the API and frontend.
-
-### Option 2: Local Setup
+### Local Setup
 
 ```bash
 python -m venv .venv
@@ -61,192 +166,83 @@ pip install -r requirements.txt
 python -m etl.pipeline --schema-only
 python -m etl.pipeline --local-data ./ipl_json
 uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 after both services are running.
+Then open `http://localhost:5173`.
 
-For hosted deployments, set `FRONTEND_ORIGINS` on the API host and `VITE_API_BASE_URL` on the frontend host.
+## Repository Layout
 
----
-
-## Project Structure
-
-```
-ipl-data-warehouse/
-├── config/
-│   ├── settings.py
-│   └── logging_config.py
-├── sql/
-│   ├── 01_create_schema.sql
-│   ├── 02_create_indexes.sql
-│   ├── 03_seed_dimensions.sql
-│   ├── 04_analytical_queries.sql
-│   ├── 05_olap_operations.sql
-│   ├── 06_create_views.sql
-│   └── 07_stored_procedures.sql
-├── etl/
-│   ├── extract.py
-│   ├── validate.py
-│   ├── transform_helpers.py
-│   ├── transform.py
-│   ├── load.py
-│   ├── data_quality.py
-│   └── pipeline.py
-├── api/
-│   ├── main.py
-│   ├── queries.py
-│   └── db.py
-├── frontend/
-│   ├── src/App.tsx
-│   ├── src/styles.css
-│   └── vite.config.ts
-├── dashboard/
-├── tests/
-│   ├── conftest.py
-│   ├── test_transform.py
-│   ├── test_validate.py
-│   ├── test_helpers.py
-│   ├── test_extract.py
-│   ├── test_load.py
-│   ├── test_data_quality.py
-│   ├── test_pipeline.py
-│   └── test_config.py
-├── docs/
-│   ├── architecture.md
-│   ├── schema_diagram.md
-│   ├── deployment_guide.md
-│   └── supabase_local_runbook.md
-├── .github/workflows/ci.yml
+```text
+Warehouse/
+├── api/                FastAPI routes, SQL assistant, query helpers
+├── config/             Settings and logging
+├── etl/                Extract, validate, transform, load, quality
+├── frontend/           React + Vite application
+├── ipl_json/           Raw IPL match JSON files
+├── sql/                Schema, indexes, analytical SQL, views
+├── tests/              Pytest suite
+├── .github/workflows/  CI and warehouse refresh workflows
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-├── .env.example
-├── .gitignore
-├── Procfile
-├── runtime.txt
 └── README.md
 ```
 
----
+## CI/CD and Refresh Automation
 
-## Data Pipeline
+```mermaid
+flowchart LR
+    Push[Push or PR] --> Lint[Lint]
+    Lint --> Tests[Pytest suite]
+    Tests --> Frontend[Frontend build]
+    Tests --> Docker[Docker build]
+    Frontend --> Gate[Ready to merge]
+    Docker --> Gate
 
-```
-Cricsheet (1193 JSON files)
-        │
-        ▼
-   ┌─── Extract ───┐
-   │  Download ZIP  │
-   │  SHA256 verify │
-   └───────┬────────┘
-           ▼
-   ┌─── Validate ──┐
-   │  Schema check  │
-   │  Type check    │
-   │  Business rules│
-   └───────┬────────┘
-           ▼
-   ┌─── Transform ─┐
-   │  Flatten JSON  │
-   │  Normalize     │
-   │  Compute dims  │
-   └───────┬────────┘
-           ▼
-   ┌─── Load ──────┐
-   │  Upsert dims   │
-   │  Insert facts  │
-   │  Batch 1000    │
-   └───────┬────────┘
-           ▼
-   ┌─── Quality ───┐
-   │  10 DQ checks  │
-   │  Log results   │
-   └────────────────┘
+    Schedule[Scheduled refresh] --> Cadence[Cadence decision]
+    Cadence --> ETL[Incremental ETL run]
+    ETL --> Verify[Warehouse table verification]
 ```
 
----
+### What the Automation Covers
 
-## Frontend Views
+- Python lint and formatting checks.
+- Full pytest execution.
+- Production frontend bundle build.
+- Docker image build verification.
+- Scheduled or manual warehouse refresh with cadence control.
 
-| Page | Key Visualizations |
-|------|-------------------|
-| **Overview** | 8 KPIs, season trends, top performers |
-| **Batting** | Leaderboard, strike rate scatter, player profiles |
-| **Bowling** | Economy charts, wicket leaders, bowler profiles |
-| **Teams** | Win %, season performance, toss analysis |
-| **Venues** | Run rates, boundary %, bat-first vs chase |
-| **Head-to-Head** | Matchup records, season breakdown, top performers |
-| **Query Lab** | Natural-language prompt to SQL, result table, auto chart |
+## Tech Stack
 
----
+| Layer | Technology |
+|------|------------|
+| Data source | Cricsheet IPL JSON |
+| ETL | Python, pandas, SQLAlchemy, psycopg2 |
+| Warehouse | PostgreSQL |
+| API | FastAPI |
+| Frontend | React, Vite, Recharts |
+| Testing | Pytest |
+| Automation | GitHub Actions |
 
-## Analytical Queries
-
-The project includes 22 analytical queries demonstrating:
-
-- `GROUP BY ROLLUP` — Season → team aggregations
-- `GROUP BY CUBE` — Multi-dimensional summaries
-- `RANK() / DENSE_RANK()` — Leaderboards
-- `NTILE()` — Performance percentiles
-- `LAG() / LEAD()` — Season-over-season comparisons
-- `Running totals` — Cumulative career milestones
-- `PARTITION BY` — Within-group analytics
-
----
-
-## Testing
+## Validation Commands
 
 ```bash
-python -m pytest tests/ -v
-python -m pytest tests/ --cov=etl --cov=config --cov-report=html
-python -m pytest tests/test_transform.py -v
+python -m pytest tests
+cd frontend && npm run build
 ```
 
----
+## Data Source
 
-## Cloud Deployment
-
-| Service | Provider | Purpose |
-|---------|----------|---------|
-| Database | Supabase | Managed PostgreSQL |
-| API | Railway / Render / Fly.io | Backend hosting |
-| Frontend | Vercel / Netlify / Static host | Web hosting |
-| CI/CD | GitHub Actions | Automated pipeline |
-
-### Vercel Frontend Checklist
-
-1. Import the `frontend` directory as a Vercel project.
-2. Set `VITE_API_BASE_URL` to your deployed FastAPI base URL.
-3. Set `FRONTEND_ORIGINS` on the API host to include the Vercel domain.
-4. Use the generated `frontend/vercel.json` so Vercel builds from `npm run build` and serves the Vite `dist` folder.
-
-See [docs/deployment_guide.md](docs/deployment_guide.md) for detailed instructions.
-See [docs/supabase_local_runbook.md](docs/supabase_local_runbook.md) for the exact local commands used with Supabase.
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
----
+- Cricsheet IPL JSON archive: `https://cricsheet.org/downloads/ipl_json.zip`
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgments
-
-- [Cricsheet](https://cricsheet.org/) for providing open cricket data
-- [FastAPI](https://fastapi.tiangolo.com/) for the backend API
-- [React](https://react.dev/) and [Vite](https://vitejs.dev/) for the frontend
-- [Recharts](https://recharts.org/) for interactive visualizations
+MIT License

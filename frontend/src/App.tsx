@@ -747,7 +747,11 @@ function ThemeToggle(props: { theme: ThemeMode; onToggle: () => void; className?
   );
 }
 
-function DataTable(props: { rows: TableRow[] }) {
+function DataTable(props: {
+  rows: TableRow[];
+  mobileStickyFirstColumn?: boolean;
+  mobileCondensedFirstColumn?: boolean;
+}) {
   const isCompactLayout = useViewportQuery("(max-width: 720px)");
   const [pageSize, setPageSize] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches
@@ -757,23 +761,25 @@ function DataTable(props: { rows: TableRow[] }) {
         : 12,
   );
   const [page, setPage] = useState(1);
-  const [scrollTop, setScrollTop] = useState(0);
   const columns = props.rows.length ? Object.keys(props.rows[0]) : [];
   const pageSizeOptions = isCompactLayout ? [8, 12, 16] : [10, 12, 25, 50];
   const totalPages = Math.max(1, Math.ceil(props.rows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * pageSize;
   const pagedRows = props.rows.slice(pageStart, pageStart + pageSize);
-  const virtualized = !isCompactLayout && pagedRows.length > 14;
-  const rowHeight = isCompactLayout ? 40 : 46;
-  const viewportHeight = Math.min(420, Math.max(220, pagedRows.length * rowHeight));
-  const visibleCount = virtualized ? Math.ceil(viewportHeight / rowHeight) + 4 : pagedRows.length;
-  const windowStart = virtualized ? Math.max(0, Math.floor(scrollTop / rowHeight) - 2) : 0;
-  const windowEnd = virtualized ? Math.min(pagedRows.length, windowStart + visibleCount) : pagedRows.length;
-  const visibleRows = pagedRows.slice(windowStart, windowEnd);
-  const topSpacerHeight = windowStart * rowHeight;
-  const bottomSpacerHeight = (pagedRows.length - windowEnd) * rowHeight;
   const shouldShowScrollHint = isCompactLayout && columns.length > 4;
+  const tableClassName = [
+    "data-table",
+    isCompactLayout ? "data-table-mobile" : null,
+    isCompactLayout && props.mobileStickyFirstColumn !== false
+      ? "data-table-mobile-sticky"
+      : null,
+    isCompactLayout && props.mobileCondensedFirstColumn
+      ? "data-table-mobile-condensed-first"
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   useEffect(() => {
     setPage(1);
@@ -792,8 +798,10 @@ function DataTable(props: { rows: TableRow[] }) {
   }, [isCompactLayout, props.rows.length]);
 
   useEffect(() => {
-    setScrollTop(0);
-  }, [currentPage, pageSize]);
+    if (!props.rows.length) {
+      setPage(1);
+    }
+  }, [props.rows.length]);
 
   if (!props.rows.length) {
     return <EmptyState message="No rows available for the current selection." />;
@@ -821,12 +829,8 @@ function DataTable(props: { rows: TableRow[] }) {
 
       {shouldShowScrollHint ? <p className="table-mobile-hint">Swipe sideways to see the remaining columns.</p> : null}
 
-      <div
-        className={`table-wrap ${virtualized ? "table-wrap-virtualized" : ""} ${isCompactLayout ? "table-wrap-mobile" : ""}`.trim()}
-        onScroll={virtualized ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
-        style={virtualized ? { maxHeight: `${viewportHeight}px` } : undefined}
-      >
-        <table className={`data-table ${isCompactLayout ? "data-table-mobile" : ""}`.trim()}>
+      <div className={`table-wrap ${isCompactLayout ? "table-wrap-mobile" : ""}`.trim()}>
+        <table className={tableClassName}>
           <thead>
             <tr>
               {columns.map((column) => (
@@ -835,23 +839,18 @@ function DataTable(props: { rows: TableRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {topSpacerHeight ? (
-              <tr className="table-spacer-row">
-                <td className="table-spacer-cell" colSpan={columns.length} style={{ height: `${topSpacerHeight}px` }} />
-              </tr>
-            ) : null}
-            {visibleRows.map((row, rowIndex) => (
-              <tr key={`${pageStart + windowStart + rowIndex}-${String(row[columns[0]])}`}>
-                {columns.map((column) => (
-                  <td key={column}>{formatValue(row[column])}</td>
-                ))}
+            {pagedRows.map((row, rowIndex) => (
+              <tr key={`${pageStart + rowIndex}-${String(row[columns[0]])}`}>
+                {columns.map((column) => {
+                  const cellValue = formatValue(row[column]);
+                  return (
+                    <td key={column} title={cellValue === "-" ? undefined : cellValue}>
+                      {cellValue}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
-            {bottomSpacerHeight ? (
-              <tr className="table-spacer-row">
-                <td className="table-spacer-cell" colSpan={columns.length} style={{ height: `${bottomSpacerHeight}px` }} />
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>
@@ -874,6 +873,7 @@ function DataTable(props: { rows: TableRow[] }) {
 }
 
 function AutoInsightChart(props: { rows: TableRow[] }) {
+  const isCompactLayout = useViewportQuery("(max-width: 720px)");
   const numericColumns = getNumericColumns(props.rows);
   const categoryColumn = getCategoryColumn(props.rows, numericColumns);
   const suggestions = getChartSuggestions(props.rows);
@@ -887,7 +887,16 @@ function AutoInsightChart(props: { rows: TableRow[] }) {
     return <EmptyState message="Ask a question to generate a visual answer." />;
   }
 
-  const chartRows = props.rows.slice(0, 12);
+  const chartRowLimit = isCompactLayout ? 18 : 24;
+  const chartRows = props.rows.slice(0, chartRowLimit);
+  const isChartTruncated = chartRows.length < props.rows.length;
+  const leaderboardAxisWidth = isCompactLayout ? 104 : 170;
+  const leaderboardLabelLength = isCompactLayout ? 12 : 22;
+  const leaderboardHeight = getVerticalChartHeight(
+    chartRows.length,
+    isCompactLayout ? 232 : 256,
+    isCompactLayout ? 24 : 28,
+  );
 
   if (!suggestions.length || !activeMode) {
     return <EmptyState message="The generated result is better viewed as a table than a chart." />;
@@ -919,12 +928,20 @@ function AutoInsightChart(props: { rows: TableRow[] }) {
 
   if (activeMode === "leaderboard" && categoryColumn && primaryMetric) {
     chartContent = (
-      <div className="chart-box chart-box-short">
+      <div className="chart-box chart-box-short" style={{ height: `${leaderboardHeight}px` }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+          <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
             <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
             <XAxis type="number" stroke="#9aa8c7" />
-            <YAxis type="category" dataKey={categoryColumn} width={170} interval={0} stroke="#9aa8c7" />
+            <YAxis
+              type="category"
+              dataKey={categoryColumn}
+              width={leaderboardAxisWidth}
+              interval={0}
+              stroke="#9aa8c7"
+              tick={{ fontSize: isCompactLayout ? 10 : 11 }}
+              tickFormatter={(value) => truncateChartLabel(value, leaderboardLabelLength)}
+            />
             <Tooltip />
             <Bar dataKey={primaryMetric} fill="#f97316" radius={[0, 8, 8, 0]} />
           </BarChart>
@@ -1027,7 +1044,11 @@ function AutoInsightChart(props: { rows: TableRow[] }) {
         <div className="query-visual-surface">{chartContent}</div>
 
         <div className="query-visual-footer">
-          <span>Showing the first {formatValue(chartRows.length)} rows in the visual layer.</span>
+          <span>
+            {isChartTruncated
+              ? `Showing the first ${formatValue(chartRows.length)} rows in the visual layer.`
+              : `Showing all ${formatValue(chartRows.length)} rows in the visual layer.`}
+          </span>
           {metricSummary ? <strong>{metricSummary}</strong> : null}
         </div>
       </div>
@@ -1040,6 +1061,7 @@ function MultiChipFilter(props: {
   items: string[];
   selected: string[];
   onToggle: (value: string) => void;
+  chipClassName?: string;
 }) {
   return (
     <div className="filter-group">
@@ -1048,7 +1070,7 @@ function MultiChipFilter(props: {
         {props.items.map((item) => (
           <button
             key={item}
-            className={`chip ${props.selected.includes(item) ? "chip-active" : ""}`}
+            className={`chip ${props.chipClassName || ""} ${props.selected.includes(item) ? "chip-active" : ""}`.trim()}
             aria-pressed={props.selected.includes(item)}
             onClick={() => props.onToggle(item)}
             type="button"
@@ -1146,15 +1168,67 @@ function OverviewView() {
   const fastestSeason = pickMaxRow(seasonSummary, "avg_runs_per_ball");
   const mobileSummaryEntries = metricEntries.slice(0, 3);
   const visibleMetricEntries = isCompactLayout ? metricEntries.slice(3, 7) : metricEntries;
+  const warehouseConceptCards = [
+    {
+      label: "Star schema",
+      value: "2 fact tables",
+      detail: "Delivery-grain and match-grain facts share player, team, venue, match, and date dimensions for reusable analytics.",
+    },
+    {
+      label: "OLAP cube",
+      value: "Season x Team x Venue",
+      detail: "The dashboard slices by season, dices by team and venue, and drills from season summaries down to ball-by-ball evidence.",
+    },
+    {
+      label: "Snowflake edges",
+      value: "Date + match context",
+      detail: "Phase, quarter, weekend, and match metadata extend the star without shifting business logic into the client.",
+    },
+    {
+      label: "Warehouse discipline",
+      value: "ETL + DQ + lineage",
+      detail: "Validation, incremental refresh, ETL run logs, and quality checks keep the analytical layer auditable and stable.",
+    },
+  ];
+  const warehouseOperations = [
+    {
+      label: "Slice",
+      detail: "Limit the cube to a single season, team, or venue while keeping the same warehouse measures.",
+    },
+    {
+      label: "Dice",
+      detail: "Compare multi-dimensional cuts such as team by venue, rivalry by season, or venue by chase outcome.",
+    },
+    {
+      label: "Drill-down",
+      detail: "Move from season summaries to match outcomes and then to delivery-level scoring and wicket context.",
+    },
+    {
+      label: "Roll-up",
+      detail: "Aggregate deliveries into innings, matches, seasons, and league-wide KPIs from the same facts and dimensions.",
+    },
+  ];
+  const schemaPatterns = [
+    {
+      label: "Fact tables",
+      detail: "fact_deliveries captures ball-level events, while fact_match_summary stores match-level outcomes, totals, and awards.",
+    },
+    {
+      label: "Conformed dimensions",
+      detail: "dim_player, dim_team, dim_venue, dim_match, and dim_date provide reusable labels and filters across every dashboard view.",
+    },
+    {
+      label: "Snowflake enrichment",
+      detail: "Date attributes such as quarter, weekend, and phase_of_tournament support richer OLAP cuts without duplicating facts.",
+    },
+    {
+      label: "Presentation layer",
+      detail: "FastAPI serves curated aggregates while React stays thin and reads the warehouse model instead of embedding business rules.",
+    },
+  ];
 
   return (
     <div className="view-stack">
-      <SectionHeader
-        eyebrow="Warehouse pulse"
-        title="IPL pulse board"
-        subtitle="Read the season story fast: match load, run flow, wicket pressure, and the biggest names in the warehouse."
-      />
-
       {isCompactLayout ? null : (
         <div className="insight-strip">
           <article className="insight-card">
@@ -1196,6 +1270,52 @@ function OverviewView() {
             <strong>{formatValue(value)}</strong>
           </article>
         ))}
+      </div>
+
+      <Panel
+        title="Warehouse foundations"
+        subtitle="This overview now reads as a dimensional warehouse summary instead of a flat dashboard heading."
+      >
+        <div className="warehouse-primer-grid">
+          {warehouseConceptCards.map((card) => (
+            <article className="warehouse-primer-card" key={card.label}>
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <p>{card.detail}</p>
+            </article>
+          ))}
+        </div>
+      </Panel>
+
+      <div className="panel-grid panel-grid-2">
+        <Panel title="3D OLAP cube" subtitle="Season, team, and venue act as the primary analytical cube for the warehouse.">
+          <div className="olap-cube-layout">
+            <div aria-hidden="true" className="olap-cube-figure">
+              <span className="olap-cube-face olap-cube-face-top">Venue</span>
+              <span className="olap-cube-face olap-cube-face-side">Team</span>
+              <span className="olap-cube-face olap-cube-face-front">Season</span>
+            </div>
+            <div className="warehouse-bullet-list">
+              {warehouseOperations.map((operation) => (
+                <article className="warehouse-bullet-item" key={operation.label}>
+                  <strong>{operation.label}</strong>
+                  <p>{operation.detail}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Schema patterns" subtitle="How the IPL warehouse represents star-schema facts, snowflake enrichments, and presentation-ready aggregates.">
+          <div className="warehouse-bullet-list">
+            {schemaPatterns.map((pattern) => (
+              <article className="warehouse-bullet-item" key={pattern.label}>
+                <strong>{pattern.label}</strong>
+                <p>{pattern.detail}</p>
+              </article>
+            ))}
+          </div>
+        </Panel>
       </div>
 
       {isCompactLayout ? (
@@ -1769,6 +1889,20 @@ function VenuesView(props: { seasons: string[]; venues: string[] }) {
   const venueState = useApi<{ venue_stats: TableRow[]; chase_stats: TableRow[] }>(
     buildApiPath("/api/venues", { seasons: selectedSeasons, venues: selectedVenues }),
   );
+  const venueChartRows = venueState.data?.venue_stats.slice(0, 15) || [];
+  const chaseChartRows = venueState.data?.chase_stats.slice(0, 15) || [];
+  const venueLabelMaxLength = isCompactLayout ? 18 : 34;
+  const venueLabelWidth = isCompactLayout ? 138 : 248;
+  const venueChartHeight = getVerticalChartHeight(
+    venueChartRows.length,
+    isCompactLayout ? 320 : 440,
+    isCompactLayout ? 28 : 38,
+  );
+  const chaseChartHeight = getVerticalChartHeight(
+    chaseChartRows.length,
+    isCompactLayout ? 320 : 440,
+    isCompactLayout ? 28 : 38,
+  );
 
   return (
     <div className="view-stack">
@@ -1789,6 +1923,7 @@ function VenuesView(props: { seasons: string[]; venues: string[] }) {
           title="Venues"
           items={props.venues.slice(0, 18)}
           selected={selectedVenues}
+          chipClassName="chip-compact chip-venue"
           onToggle={(value) => setSelectedVenues((current) => toggleInList(current, value))}
         />
       </Panel>
@@ -1799,33 +1934,57 @@ function VenuesView(props: { seasons: string[]; venues: string[] }) {
         <>
           <div className="panel-grid panel-grid-2">
             <Panel title="Average run rate by venue" subtitle="Minimum three matches required to appear.">
-              <div className="chart-box">
+              <div className="chart-box" style={{ height: `${venueChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={venueState.data.venue_stats.slice(0, 15)} layout="vertical">
+                  <BarChart data={venueChartRows} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
                     <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
                     <XAxis type="number" stroke="#9aa8c7" />
-                    <YAxis type="category" dataKey="venue_name" width={196} interval={0} stroke="#9aa8c7" tickFormatter={(value) => truncateChartLabel(value, 24)} />
+                    <YAxis
+                      type="category"
+                      dataKey="venue_name"
+                      width={venueLabelWidth}
+                      interval={0}
+                      stroke="#9aa8c7"
+                      tick={{ fontSize: isCompactLayout ? 10 : 11 }}
+                      tickFormatter={(value) => truncateChartLabel(value, venueLabelMaxLength)}
+                    />
                     <Tooltip />
                     <Bar dataKey="avg_run_rate" fill="#f97316" radius={[0, 8, 8, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <DataTable rows={venueState.data.venue_stats} />
+              <DataTable
+                rows={venueState.data.venue_stats}
+                mobileStickyFirstColumn={false}
+                mobileCondensedFirstColumn
+              />
             </Panel>
 
             <Panel title="Chase win rate" subtitle="Normal-result matches only.">
-              <div className="chart-box">
+              <div className="chart-box" style={{ height: `${chaseChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={venueState.data.chase_stats.slice(0, 15)}>
+                  <BarChart data={chaseChartRows} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
                     <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
-                    <XAxis dataKey="venue_name" stroke="#9aa8c7" hide />
-                    <YAxis stroke="#9aa8c7" />
+                    <XAxis type="number" stroke="#9aa8c7" domain={[0, 100]} />
+                    <YAxis
+                      type="category"
+                      dataKey="venue_name"
+                      width={venueLabelWidth}
+                      interval={0}
+                      stroke="#9aa8c7"
+                      tick={{ fontSize: isCompactLayout ? 10 : 11 }}
+                      tickFormatter={(value) => truncateChartLabel(value, venueLabelMaxLength)}
+                    />
                     <Tooltip />
-                    <Bar dataKey="chase_win_pct" fill="#14b8a6" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="chase_win_pct" fill="#14b8a6" radius={[0, 8, 8, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <DataTable rows={venueState.data.chase_stats} />
+              <DataTable
+                rows={venueState.data.chase_stats}
+                mobileStickyFirstColumn={false}
+                mobileCondensedFirstColumn
+              />
             </Panel>
           </div>
 
@@ -1991,12 +2150,29 @@ function HeadToHeadView(props: { teams: string[]; seasons: string[] }) {
           </div>
 
           <Panel title="Top matchup batters" subtitle="Run leaders in the selected rivalry.">
-            <div className="chart-box chart-box-short">
+            <div
+              className="chart-box chart-box-short"
+              style={{
+                height: `${getVerticalChartHeight(
+                  headToHeadState.data.performers.length,
+                  isCompactLayout ? 244 : 268,
+                  isCompactLayout ? 26 : 30,
+                )}px`,
+              }}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={headToHeadState.data.performers} layout="vertical">
+                <BarChart data={headToHeadState.data.performers} layout="vertical" margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
                   <CartesianGrid stroke="#26354f" strokeDasharray="3 3" />
                   <XAxis type="number" stroke="#9aa8c7" />
-                  <YAxis type="category" dataKey="player_name" width={170} interval={0} stroke="#9aa8c7" tickFormatter={(value) => truncateChartLabel(value, 20)} />
+                  <YAxis
+                    type="category"
+                    dataKey="player_name"
+                    width={isCompactLayout ? 102 : 170}
+                    interval={0}
+                    stroke="#9aa8c7"
+                    tick={{ fontSize: isCompactLayout ? 10 : 11 }}
+                    tickFormatter={(value) => truncateChartLabel(value, isCompactLayout ? 12 : 20)}
+                  />
                   <Tooltip />
                   <Bar dataKey="runs" fill="#38bdf8" radius={[0, 8, 8, 0]} />
                 </BarChart>
@@ -2236,12 +2412,31 @@ export default function App() {
     applyDocumentTheme(initialTheme);
     return initialTheme;
   });
+  const mobileDockRef = useRef<HTMLElement | null>(null);
+  const mobileDockButtonRefs = useRef<Partial<Record<ViewKey, HTMLButtonElement | null>>>({});
   const optionsState = useApi<ReferenceOptions>(buildApiPath("/api/reference/options"));
 
   useEffect(() => {
     applyDocumentTheme(theme);
     writeLocalCache(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia("(max-width: 720px)").matches) {
+      return;
+    }
+
+    const dock = mobileDockRef.current;
+    const activeButton = mobileDockButtonRefs.current[view];
+    if (!dock || !activeButton) {
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, dock.scrollWidth - dock.clientWidth);
+    const centeredOffset = activeButton.offsetLeft - (dock.clientWidth - activeButton.offsetWidth) / 2;
+    const targetScrollLeft = Math.min(maxScrollLeft, Math.max(0, centeredOffset));
+    dock.scrollTo({ left: targetScrollLeft, behavior: "smooth" });
+  }, [view]);
 
   const activeNavItem = NAV_ITEMS.find((item) => item.key === view) || NAV_ITEMS[0];
 
@@ -2261,8 +2456,8 @@ export default function App() {
           <span className="eyebrow">IPL Analytics Studio</span>
           <h1>Warehouse command deck</h1>
           <p>
-            A modern front end for the IPL warehouse, tuned for fast reads on scoring,
-            rivalry pressure, and franchise shape.
+            A warehouse-first IPL analytics shell with star-schema measures, OLAP drill paths,
+            and dimensional views across scoring, rivalry pressure, venue behavior, and team shape.
           </p>
         </div>
 
@@ -2290,7 +2485,9 @@ export default function App() {
         <div className="rail-footer">
           <span>Data source</span>
           <strong>Cricsheet IPL JSON</strong>
-          <small>Frontend port 5173 · API port 8000</small>
+          <small>
+            <a href="https://cricsheet.org/downloads/ipl_json.zip">Download Date</a>
+          </small>
         </div>
       </aside>
 
@@ -2308,8 +2505,8 @@ export default function App() {
             <span className="hero-pill hero-pill-muted">{activeNavItem.eyebrow}</span>
           </div>
           <p>
-            Explore batting, bowling, venues, rivalries, and natural-language SQL in a cleaner
-            React shell built for quick reading on desktop, tablet, and phone.
+            Explore batting, bowling, venues, rivalries, and natural-language SQL on top of a
+            dimensional IPL warehouse built for OLAP-style slice, dice, drill-down, and roll-up analysis.
           </p>
         </header>
 
@@ -2335,13 +2532,16 @@ export default function App() {
         ) : null}
       </main>
 
-      <nav aria-label="Mobile navigation" className="mobile-dock">
+      <nav aria-label="Mobile navigation" className="mobile-dock" ref={mobileDockRef}>
         {NAV_ITEMS.map((item, index) => (
           <button
             key={`mobile-${item.key}`}
             aria-current={view === item.key ? "page" : undefined}
             aria-pressed={view === item.key}
             className={`mobile-dock-button ${view === item.key ? "mobile-dock-button-active" : ""}`}
+            ref={(element) => {
+              mobileDockButtonRefs.current[item.key] = element;
+            }}
             onClick={() => {
               startTransition(() => setView(item.key));
             }}

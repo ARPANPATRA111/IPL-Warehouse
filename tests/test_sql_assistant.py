@@ -56,6 +56,74 @@ def test_query_engine_context_includes_semantic_schema_groups(mock_get_reference
     assert "Source coverage confirmed from the raw IPL JSON corpus" in context["schema_summary"]
     assert "Available seasons: 2024, 2025." in context["schema_summary"]
     assert "Which teams most often win after losing the toss by season?" in context["examples"]
+    assert "Who won the finals of season 2025?" in context["examples"]
+    assert "Which team won IPL 2025?" in context["examples"]
+
+@patch("api.sql_assistant.generate_sql")
+@patch("api.sql_assistant.run_query")
+def test_answer_analytics_question_uses_prebuilt_final_winner_query(mock_run_query, mock_generate_sql):
+    mock_run_query.return_value = pd.DataFrame(
+        [{
+            "season": "2025",
+            "winning_team": "Royal Challengers Bengaluru",
+            "player_of_match": "Krunal Pandya",
+            "venue_name": "Narendra Modi Stadium",
+        }]
+    )
+
+    result = answer_analytics_question("Who won the finals of season 2025?")
+
+    mock_generate_sql.assert_not_called()
+    executed_sql = mock_run_query.call_args[0][0]
+    assert "phase_of_tournament" in executed_sql
+    assert "winning team" in result["answer_text"].lower()
+
+@patch("api.sql_assistant.generate_sql")
+@patch("api.sql_assistant.run_query")
+def test_answer_analytics_question_uses_prebuilt_season_winner_query(mock_run_query, mock_generate_sql):
+    mock_run_query.return_value = pd.DataFrame(
+        [{
+            "season": "2025",
+            "winning_team": "Royal Challengers Bengaluru",
+            "player_of_match": "Krunal Pandya",
+            "venue_name": "Narendra Modi Stadium",
+        }]
+    )
+
+    result = answer_analytics_question("Which team won IPL 2025?")
+
+    mock_generate_sql.assert_not_called()
+    executed_sql = mock_run_query.call_args[0][0]
+    assert "phase_of_tournament" in executed_sql
+    assert "royal challengers bengaluru" in result["answer_text"].lower()
+
+@patch("api.sql_assistant.generate_sql")
+@patch("api.sql_assistant.run_query")
+def test_answer_analytics_question_uses_prebuilt_player_of_match_leaders_query(mock_run_query, mock_generate_sql):
+    mock_run_query.return_value = pd.DataFrame(
+        [
+            {
+                "season": "2008",
+                "player_name": "SE Marsh",
+                "team_name": "Kings XI Punjab",
+                "player_of_match_awards": 5,
+            },
+            {
+                "season": "2009",
+                "player_name": "YK Pathan",
+                "team_name": "Rajasthan Royals",
+                "player_of_match_awards": 4,
+            },
+        ]
+    )
+
+    result = answer_analytics_question("List player of the match leaders for each season with their teams.")
+
+    mock_generate_sql.assert_not_called()
+    executed_sql = mock_run_query.call_args[0][0]
+    assert "player_of_match_awards" in executed_sql
+    assert result["row_count"] == 2
+    assert result["rows"][0]["team_name"] == "Kings XI Punjab"
 
 @patch("api.sql_assistant.repair_sql")
 @patch("api.sql_assistant.generate_sql")

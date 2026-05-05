@@ -60,6 +60,18 @@ PLAYER_NAME_FILTER_PATTERN = re.compile(
 PLAYER_NAME_CANDIDATE_PATTERN = re.compile(
     r"(?P<name>[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})(?:'s)?"
 )
+FINAL_WINNER_PATTERN = re.compile(
+    r"\bwho\s+won\s+the\s+finals?\s+(?:of|in|for)\s+(?:season\s+)?(?P<season>\d{4})\b",
+    re.IGNORECASE,
+)
+SEASON_CHAMPION_PATTERN = re.compile(
+    r"\b(?:who|which\s+team)\s+won\s+(?:the\s+)?(?:ipl|season|tournament)\s+(?P<season>\d{4})\b",
+    re.IGNORECASE,
+)
+PLAYER_OF_MATCH_LEADERS_PATTERN = re.compile(
+    r"\bplayer\s+of\s+the\s+match\b.*\b(each|every)\s+season\b.*\bteam",
+    re.IGNORECASE,
+)
 
 SQL_CLAUSE_KEYWORDS = {
     "where",
@@ -158,6 +170,8 @@ SCHEMA_CONTEXT = dedent("""
     - Prefer dim_date for season, year, quarter, weekend, and phase_of_tournament filters.
     - Use CTEs for multi-step logic like toss-winner conversion, defended totals, venue splits, or head-to-head seasonal breakdowns.
     - Prefer joins to dimensions so output columns are human-readable.
+    - For final or finals questions, join fact_match_summary to dim_date and filter dim_date.phase_of_tournament to Final.
+    - For player of the match leaders by season, aggregate fact_match_summary.player_of_match_key by season and resolve player names through dim_player.
 
     Business rules:
     - Use only read-only SQL.
@@ -176,6 +190,8 @@ QUERY_EXAMPLES = [
     "Find the bowlers with the best economy rate in death overs.",
     "Show yearly run trends and sixes across IPL seasons.",
     "Who hit the most sixes in IPL season 2024?",
+    "Who won the finals of season 2025?",
+    "Which team won IPL 2025?",
     "Which teams most often win after losing the toss by season?",
     "Show powerplay run rate and wickets lost by team in season 2024.",
     "Which venues have the highest chase success when the target is above 180?",
@@ -505,6 +521,110 @@ def _normalize_sql(sql: str) -> str:
     return repaired
 
 
+def _get_prebuilt_query(question: str) -> GeneratedQuery | None:
+    final_match = FINAL_WINNER_PATTERN.search(question) or SEASON_CHAMPION_PATTERN.search(question)
+    if final_match:
+        season = final_match.group("season")
+        sql = dedent(
+            f"""
+            SELECT
+                dd.season,
+                winner.team_name AS winning_team,
+                pom.player_name AS player_of_match,
+                venue.venue_name
+            FROM fact_match_summary fms
+            JOIN dim_date dd ON fms.date_key = dd.date_key
+            LEFT JOIN dim_team winner ON fms.match_winner_key = winner.team_key
+            LEFT JOIN dim_player pom ON fms.player_of_match_key = pom.player_key
+            LEFT JOIN dim_venue venue ON fms.venue_key = venue.venue_key
+            WHERE dd.season = '{season}'
+              AND LOWER(COALESCE(dd.phase_of_tournament, '')) IN ('final', 'finals')
+            ORDER BY dd.full_date DESC NULLS LAST, fms.match_key DESC
+            LIMIT 1
+            """
+        ).strip()
+        return GeneratedQuery(
+            title=f"IPL final winner for season {season}",
+            explanation="This warehouse-native query reads the match-grain fact table, then filters the date dimension to the Final phase so the answer comes from the modeled tournament stage rather than guesswork.",
+            sql=sql,
+        )
+
+    if PLAYER_OF_MATCH_LEADERS_PATTERN.search(question):
+        sql = dedent(
+            """
+            WITH player_match_teams AS (
+                SELECT DISTINCT
+                    fd.match_key,
+                    fd.batsman_key AS player_key,
+                    fd.batting_team_key AS team_key
+                FROM fact_deliveries fd
+                WHERE fd.batsman_key IS NOT NULL
+
+                UNION
+
+                SELECT DISTINCT
+                    fd.match_key,
+                    fd.non_striker_key AS player_key,
+                    fd.batting_team_key AS team_key
+                FROM fact_deliveries fd
+                WHERE fd.non_striker_key IS NOT NULL
+
+                UNION
+
+                SELECT DISTINCT
+                    fd.match_key,
+                    fd.bowler_key AS player_key,
+                    fd.bowling_team_key AS team_key
+                FROM fact_deliveries fd
+                WHERE fd.bowler_key IS NOT NULL
+            ),
+            season_player_awards AS (
+                SELECT
+                    dd.season,
+                    dp.player_name,
+                    dt.team_name,
+                    COUNT(*) AS player_of_match_awards
+                FROM fact_match_summary fms
+                JOIN dim_date dd ON fms.date_key = dd.date_key
+                JOIN dim_player dp ON fms.player_of_match_key = dp.player_key
+                JOIN player_match_teams pmt
+                  ON pmt.match_key = fms.match_key
+                 AND pmt.player_key = fms.player_of_match_key
+                JOIN dim_team dt ON pmt.team_key = dt.team_key
+                WHERE fms.player_of_match_key IS NOT NULL
+                GROUP BY dd.season, dp.player_name, dt.team_name
+            ),
+            season_leaders AS (
+                SELECT
+                    season,
+                    player_name,
+                    team_name,
+                    player_of_match_awards,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY season
+                        ORDER BY player_of_match_awards DESC, player_name, team_name
+                    ) AS season_rank
+                FROM season_player_awards
+            )
+            SELECT
+                season,
+                player_name,
+                team_name,
+                player_of_match_awards
+            FROM season_leaders
+            WHERE season_rank = 1
+            ORDER BY CAST(season AS integer), player_name
+            """
+        ).strip()
+        return GeneratedQuery(
+            title="Player of the match leaders by season",
+            explanation="This warehouse-native query aggregates player-of-the-match awards at season grain, resolves the player team from delivery participation, and returns one leader row per season.",
+            sql=sql,
+        )
+
+    return None
+
+
 def validate_read_only_sql(sql: str) -> str:
     normalized = sql.strip().rstrip(";")
     if not normalized:
@@ -686,7 +806,9 @@ def repair_sql(question: str, failed_sql: str, error_message: str) -> GeneratedQ
 
 
 def answer_analytics_question(question: str) -> dict[str, Any]:
-    current_result = generate_sql(question)
+    prebuilt_result = _get_prebuilt_query(question)
+    current_result = prebuilt_result or generate_sql(question)
+    used_prebuilt_query = prebuilt_result is not None
     last_error: Exception | None = None
 
     for repair_attempt in range(2):
@@ -697,6 +819,13 @@ def answer_analytics_question(question: str) -> dict[str, Any]:
             result_rows = result_df.to_dict(orient="records")
 
             if not result_rows and repair_attempt == 0:
+                if used_prebuilt_query:
+                    try:
+                        current_result = generate_sql(question)
+                        used_prebuilt_query = False
+                        continue
+                    except Exception:
+                        pass
                 try:
                     current_result = repair_sql(
                         question,
@@ -722,6 +851,13 @@ def answer_analytics_question(question: str) -> dict[str, Any]:
         except Exception as error:
             last_error = error
             if repair_attempt == 0:
+                if used_prebuilt_query:
+                    try:
+                        current_result = generate_sql(question)
+                        used_prebuilt_query = False
+                        continue
+                    except Exception:
+                        pass
                 try:
                     current_result = repair_sql(
                         question, current_result.sql, str(error)

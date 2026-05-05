@@ -8,7 +8,6 @@ logger = get_logger("transform_helpers")
 
 TEAM_NAME_MAPPING: dict[str, str] = {
     "Delhi Daredevils": "Delhi Capitals",
-    "Deccan Chargers": "Sunrisers Hyderabad",
     "Kings XI Punjab": "Punjab Kings",
     "Rising Pune Supergiant": "Rising Pune Supergiants",
     "Rising Pune Supergiants": "Rising Pune Supergiants",
@@ -29,7 +28,7 @@ TEAM_SHORT_NAMES: dict[str, str] = {
     "Kings XI Punjab": "PBKS",
     "Rajasthan Royals": "RR",
     "Sunrisers Hyderabad": "SRH",
-    "Deccan Chargers": "SRH",
+    "Deccan Chargers": "DCH",
     "Gujarat Titans": "GT",
     "Lucknow Super Giants": "LSG",
     "Rising Pune Supergiants": "RPS",

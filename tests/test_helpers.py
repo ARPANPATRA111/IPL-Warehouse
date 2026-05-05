@@ -17,7 +17,7 @@ class TestNormalizeTeamName:
 
     def test_known_mapping(self):
         assert normalize_team_name("Delhi Daredevils") == "Delhi Capitals"
-        assert normalize_team_name("Deccan Chargers") == "Sunrisers Hyderabad"
+        assert normalize_team_name("Deccan Chargers") == "Deccan Chargers"
         assert normalize_team_name("Royal Challengers Bangalore") == "Royal Challengers Bengaluru"
 
     def test_current_name_unchanged(self):
@@ -135,6 +135,7 @@ class TestTeamShortNames:
     def test_known_team(self):
         assert get_team_short_name("Mumbai Indians") == "MI"
         assert get_team_short_name("Chennai Super Kings") == "CSK"
+        assert get_team_short_name("Deccan Chargers") == "DCH"
 
     def test_unknown_team(self):
         result = get_team_short_name("Unknown Team XI")
