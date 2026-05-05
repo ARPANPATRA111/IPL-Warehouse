@@ -522,11 +522,12 @@ def _normalize_sql(sql: str) -> str:
 
 
 def _get_prebuilt_query(question: str) -> GeneratedQuery | None:
-    final_match = FINAL_WINNER_PATTERN.search(question) or SEASON_CHAMPION_PATTERN.search(question)
+    final_match = FINAL_WINNER_PATTERN.search(
+        question
+    ) or SEASON_CHAMPION_PATTERN.search(question)
     if final_match:
         season = final_match.group("season")
-        sql = dedent(
-            f"""
+        sql = dedent(f"""
             SELECT
                 dd.season,
                 winner.team_name AS winning_team,
@@ -541,8 +542,7 @@ def _get_prebuilt_query(question: str) -> GeneratedQuery | None:
               AND LOWER(COALESCE(dd.phase_of_tournament, '')) IN ('final', 'finals')
             ORDER BY dd.full_date DESC NULLS LAST, fms.match_key DESC
             LIMIT 1
-            """
-        ).strip()
+            """).strip()
         return GeneratedQuery(
             title=f"IPL final winner for season {season}",
             explanation="This warehouse-native query reads the match-grain fact table, then filters the date dimension to the Final phase so the answer comes from the modeled tournament stage rather than guesswork.",
@@ -550,8 +550,7 @@ def _get_prebuilt_query(question: str) -> GeneratedQuery | None:
         )
 
     if PLAYER_OF_MATCH_LEADERS_PATTERN.search(question):
-        sql = dedent(
-            """
+        sql = dedent("""
             WITH player_match_teams AS (
                 SELECT DISTINCT
                     fd.match_key,
@@ -614,8 +613,7 @@ def _get_prebuilt_query(question: str) -> GeneratedQuery | None:
             FROM season_leaders
             WHERE season_rank = 1
             ORDER BY CAST(season AS integer), player_name
-            """
-        ).strip()
+            """).strip()
         return GeneratedQuery(
             title="Player of the match leaders by season",
             explanation="This warehouse-native query aggregates player-of-the-match awards at season grain, resolves the player team from delivery participation, and returns one leader row per season.",
